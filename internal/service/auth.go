@@ -3,6 +3,9 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
+	"log"
+	"strings"
 	"time"
 
 	"sport-manager/internal/repository"
@@ -36,18 +39,27 @@ type Claims struct {
 func (s *AuthService) Login(ctx context.Context, username, password string) (string, error) {
 	user, err := s.repo.GetUserByUsername(ctx, username)
 	if err != nil {
-		// Скрываем детали об ошибке "user not found" для безопасности
-		return "", errors.New("invalid credentials") 
-	}
-
-	// Сравниваем хеш пароля
-	err = bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password))
-	if err != nil {
+		log.Printf("DEBUG: User '%s' not found in repository or DB error: %v", username, err)
 		return "", errors.New("invalid credentials")
 	}
 
-	// Генерация JWT
-	expirationTime := time.Now().Add(24 * time.Hour) // Токен действителен 24 часа
+	// 1. ОЧИСТКА ХЕША
+	cleanHash := strings.TrimSpace(user.PasswordHash)
+
+	// --- ФИНАЛЬНЫЙ ДИАГНОСТИЧЕСКИЙ ЛОГ ---
+	log.Printf("DEBUG: Found User: %s. Original Hash length: %d. Clean Hash length: %d. Clean Hash: [%s]",
+		user.Username, len(user.PasswordHash), len(cleanHash), cleanHash)
+	// ------------------------------------
+
+	// 2. Сравнение пароля с ЧИСТЫМ хешем
+	err = bcrypt.CompareHashAndPassword([]byte(cleanHash), []byte(password))
+	if err != nil {
+		log.Printf("DEBUG: bcrypt comparison FAILED for user %s. Error: %v", user.Username, err)
+		return "", errors.New("invalid credentials")
+	}
+
+	// 3. Генерация JWT (Успешный вход)
+	expirationTime := time.Now().Add(24 * time.Hour)
 	claims := &Claims{
 		UserID:   user.ID,
 		Username: user.Username,

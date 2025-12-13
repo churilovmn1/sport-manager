@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -14,13 +15,14 @@ import (
 
 // Контекстный ключ для UserID
 type ContextKey string
+
 const ContextUserID ContextKey = "userID"
 
 // Middleware для проверки JWT-токена
 func AuthMiddleware(cfg *config.Config) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			
+
 			// 1. Получение токена из заголовка Authorization
 			authHeader := r.Header.Get("Authorization")
 			if authHeader == "" {
@@ -38,7 +40,7 @@ func AuthMiddleware(cfg *config.Config) func(http.Handler) http.Handler {
 
 			// 2. Парсинг и валидация токена
 			claims := &service.Claims{}
-			
+
 			token, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
 				// Проверка метода подписи
 				if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
@@ -60,7 +62,7 @@ func AuthMiddleware(cfg *config.Config) func(http.Handler) http.Handler {
 			// 3. Сохранение данных пользователя в контексте
 			// Передаем UserID, чтобы Handler знал, кто делает запрос
 			ctx := context.WithValue(r.Context(), ContextUserID, claims.UserID)
-			
+
 			// 4. Передача управления следующему обработчику
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})

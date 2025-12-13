@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Тест Соревнований (Competition Test)</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .form-container { 
+            border: 1px solid #ccc; 
+            padding: 15px; 
+            margin-bottom: 20px; 
+            border-radius: 5px;
+        }
+        .form-container input { margin-bottom: 10px; padding: 8px; width: 98%; display: block; }
+        .form-container button { margin-right: 10px; padding: 8px 15px; }
+    </style>
+</head>
+<body>
+    <h1>Тест: Добавление Соревнований (Простая форма)</h1>
+    <button onclick="window.location.href = 'index.html'">Назад к спортсменам</button>
+    <button onclick="logout()">Выход</button>
+    <hr>
+
+    <div id="createCompetitionFormContainer" class="form-container">
+        <h2>Создать соревнование</h2>
+        <form id="createCompetitionForm">
+            <input type="text" id="compName" placeholder="Название" required>
+            <input type="text" id="compLocation" placeholder="Место" required>
+            <button type="submit">Создать соревнование (POST)</button>
+        </form>
+        <p id="compStatus" style="color: blue; font-weight: bold;"></p>
+        <p id="compError" style="color: red;"></p>
+    </div>
+
+    <script>
+        const API_BASE_URL = 'http://localhost:8080/api/v1';
+
+        function checkAuth() {
+            const token = localStorage.getItem('jwtToken');
+            if (!token) {
+                window.location.href = 'login.html';
+                return null;
+            }
+            return token;
+        }
+
+        function logout() {
+            localStorage.removeItem('jwtToken');
+            window.location.href = 'login.html';
+        }
+
+        async function createCompetition(e) {
+            e.preventDefault();
+            const token = checkAuth();
+            if (!token) return;
+
+            const statusElement = document.getElementById('compStatus');
+            const errorElement = document.getElementById('compError');
+            statusElement.textContent = 'Отправка...';
+            errorElement.textContent = '';
+            
+            // Получаем завтрашнюю дату и форматируем в ISO 8601 (RFC 3339),
+            // который Go time.Time ожидает по умолчанию (например, 2025-12-14T00:00:00.000Z)
+            const tomorrow = new Date();
+            tomorrow.setDate(tomorrow.getDate() + 1);
+            const startDate = tomorrow.toISOString(); 
+
+            const compData = {
+                name: document.getElementById('compName').value,
+                location: document.getElementById('compLocation').value,
+                start_date: startDate 
+            };
+            
+            console.log("Отправляемые данные:", compData);
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/competitions`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${token}`, 
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(compData),
+                });
+                
+                const responseText = await response.text();
+                const result = responseText ? JSON.parse(responseText) : {};
+
+
+                if (!response.ok) {
+                    const msg = result.error || result.message || response.statusText;
+                    throw new Error(`Ошибка ${response.status}: ${msg}`);
+                }
+                
+                statusElement.textContent = `УСПЕХ! Соревнование ID: ${result.id} создано.`;
+                document.getElementById('createCompetitionForm').reset();
+                
+            } catch (error) {
+                errorElement.textContent = `Ошибка: ${error.message}`;
+                statusElement.textContent = 'Создание не удалось.';
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            document.getElementById('createCompetitionForm').addEventListener('submit', createCompetition);
+        });
+    </script>
+</body>
+</html>

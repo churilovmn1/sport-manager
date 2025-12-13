@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Вход в Sport Manager</title>
+    <style>
+        /* CSS стили для оформления */
+        body { font-family: Arial, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; background-color: #f4f4f4; }
+        .login-container { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 0 10px rgba(0, 0, 0, 0.1); width: 300px; }
+        input[type="text"], input[type="password"] { width: 100%; padding: 10px; margin: 8px 0; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
+        button { background-color: #007bff; color: white; padding: 10px 15px; border: none; border-radius: 4px; cursor: pointer; width: 100%; }
+        #message { color: red; margin-top: 10px; }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <h2>Вход в систему</h2>
+        
+        <form id="loginForm"> 
+            <label for="username">Имя пользователя:</label>
+            <input type="text" id="username" name="username" required> 
+
+            <label for="password">Пароль:</label>
+            <input type="password" id="password" name="password" required>
+            
+            <button type="submit">Войти</button>
+            <p id="message"></p>
+        </form>
+    </div>
+
+    <script>
+        // Установим значения по умолчанию после загрузки DOM
+        document.addEventListener('DOMContentLoaded', () => {
+             document.getElementById('username').value = 'admin';
+             document.getElementById('password').value = 'admin123';
+        });
+
+        document.getElementById('loginForm').addEventListener('submit', async function(e) {
+            
+            // --- КРИТИЧЕСКИ ВАЖНО: Предотвращаем стандартную отправку формы! ---
+            e.preventDefault(); 
+
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            const messageElement = document.getElementById('message');
+            messageElement.textContent = '';
+            
+            const LOGIN_URL = 'http://localhost:8080/api/v1/auth/login';
+
+            // --- Диагностический alert (можно удалить после успешного входа) ---
+            alert('Используемый URL: ' + LOGIN_URL); 
+            // -------------------------------------------------------------------
+
+            try {
+                // 1. Отправка запроса на ваш Go-API
+                const response = await fetch(LOGIN_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ username, password }),
+                });
+
+                // Обработка ошибок, включая 401 Unauthorized
+                if (!response.ok) {
+                    let errorMessage = 'Ошибка входа. Проверьте учетные данные.';
+                    
+                    try {
+                        const errorData = await response.json();
+                        // Если Go-сервер вернул JSON с ошибкой (напр., {"error": "Invalid credentials"})
+                        errorMessage = errorData.error || errorMessage;
+                    } catch (e) {
+                        // Если Go-сервер вернул не-JSON (напр., 404 HTML), 
+                        errorMessage = `Ошибка: Сервер вернул статус ${response.status}. Возможно, неверный URL API.`;
+                    }
+                    
+                    throw new Error(errorMessage);
+                }
+
+                // Успешный ответ
+                const data = await response.json();
+                const token = data.access_token;
+
+                // 2. Сохранение токена
+                localStorage.setItem('jwtToken', token);
+                
+                // 3. Перенаправление
+                window.location.href = 'index.html'; 
+
+            } catch (error) {
+                console.error('Login error:', error);
+                messageElement.textContent = error.message;
+            }
+        });
+    </script>
+</body>
+</html>
