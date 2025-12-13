@@ -2,9 +2,9 @@ package handler
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
-	"strings"
 
 	"sport-manager/internal/repository"
 	"sport-manager/internal/service"
@@ -12,7 +12,7 @@ import (
 	"github.com/gorilla/mux"
 )
 
-// ParticipationHandler обрабатывает HTTP-запросы для участия/результатов
+// ParticipationHandler обрабатывает HTTP-запросы для участия и результатов
 type ParticipationHandler struct {
 	service *service.ParticipationService
 }
@@ -21,98 +21,102 @@ func NewParticipationHandler(s *service.ParticipationService) *ParticipationHand
 	return &ParticipationHandler{service: s}
 }
 
-// ----------------------------------------------------
-// 1. POST /api/v1/participations (Регистрация)
-// ----------------------------------------------------
+// POST /api/v1/participations (CreateParticipation)
 func (h *ParticipationHandler) CreateParticipation(w http.ResponseWriter, r *http.Request) {
-	var p repository.Participation
-	if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+	// --- RBAC: Только для Администратора ---
+	// NOTE: Раскомментировать, когда функция requireAdmin будет доступна
+	// if !requireAdmin(w, r) {
+	// 	return
+	// }
+	// ---------------------------------------
+
+	var participation repository.Participation
+	if err := json.NewDecoder(r.Body).Decode(&participation); err != nil {
+		writeErrorResponse(w, http.StatusBadRequest, "Invalid request payload")
 		return
 	}
 
-	if err := h.service.Create(r.Context(), &p); err != nil {
-		if strings.Contains(err.Error(), "validation error") {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		http.Error(w, "Internal server error registering athlete", http.StatusInternalServerError)
+	// Place будет инициализирован как 0 при декодировании, что соответствует
+	// тому, что результат пока неизвестен.
+
+	if err := h.service.Create(r.Context(), &participation); err != nil {
+		// Используем writeErrorResponse для гарантированного возврата JSON
+		writeErrorResponse(w, http.StatusInternalServerError, fmt.Sprintf("Failed to create participation: %v", err))
 		return
 	}
 
-	writeJSONResponse(w, http.StatusCreated, p)
+	writeJSONResponse(w, http.StatusCreated, participation)
 }
 
-// ----------------------------------------------------
-// 2. GET /api/v1/participations (Список всех участий)
-// ----------------------------------------------------
+// GET /api/v1/participations (ListParticipations) - Чтение разрешено всем
 func (h *ParticipationHandler) ListParticipations(w http.ResponseWriter, r *http.Request) {
-	details, err := h.service.GetAll(r.Context())
+	participations, err := h.service.ListAll(r.Context())
 	if err != nil {
-		http.Error(w, "Internal server error listing participations", http.StatusInternalServerError)
+		// Используем writeErrorResponse для гарантированного возврата JSON
+		writeErrorResponse(w, http.StatusInternalServerError, fmt.Sprintf("Failed to list participations: %v", err))
 		return
 	}
 
-	writeJSONResponse(w, http.StatusOK, details)
+	writeJSONResponse(w, http.StatusOK, participations)
 }
 
-// ----------------------------------------------------
-// 3. PUT /api/v1/participations/{id}/place (Проставление результата)
-// ----------------------------------------------------
-// Ожидаемый JSON: {"place": 1}
+// PUT /api/v1/participations/{id}/place (UpdatePlace)
 func (h *ParticipationHandler) UpdatePlace(w http.ResponseWriter, r *http.Request) {
+	// --- RBAC: Только для Администратора ---
+	// NOTE: Раскомментировать, когда функция requireAdmin будет доступна
+	// if !requireAdmin(w, r) {
+	// 	return
+	// }
+	// ---------------------------------------
+
 	vars := mux.Vars(r)
 	idStr := vars["id"]
 	id, err := strconv.Atoi(idStr)
 	if err != nil {
-		http.Error(w, "Invalid participation ID", http.StatusBadRequest)
+		writeErrorResponse(w, http.StatusBadRequest, "Invalid participation ID")
 		return
 	}
 
-	var data struct {
+	var requestBody struct {
 		Place int `json:"place"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&data); err != nil {
-		http.Error(w, "Invalid request body: must contain 'place'", http.StatusBadRequest)
+	if err := json.NewDecoder(r.Body).Decode(&requestBody); err != nil {
+		writeErrorResponse(w, http.StatusBadRequest, "Invalid request payload or missing 'place'")
 		return
 	}
 
-	if err := h.service.UpdatePlace(r.Context(), id, data.Place); err != nil {
-		if strings.Contains(err.Error(), "not found") {
-			http.Error(w, "Participation not found", http.StatusNotFound)
-			return
-		}
-		if strings.Contains(err.Error(), "validation error") {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		http.Error(w, "Internal server error updating place", http.StatusInternalServerError)
+	if err := h.service.UpdatePlace(r.Context(), id, requestBody.Place); err != nil {
+		// Используем writeErrorResponse для гарантированного возврата JSON
+		writeErrorResponse(w, http.StatusInternalServerError, fmt.Sprintf("Failed to update place: %v", err))
 		return
 	}
 
-	w.WriteHeader(http.StatusNoContent)
+	writeJSONResponse(w, http.StatusOK, map[string]string{"message": "Place updated successfully"})
 }
 
-// ----------------------------------------------------
-// 4. DELETE /api/v1/participations/{id} (Снятие с соревнований)
-// ----------------------------------------------------
+// DELETE /api/v1/participations/{id} (DeleteParticipation)
 func (h *ParticipationHandler) DeleteParticipation(w http.ResponseWriter, r *http.Request) {
+	// --- RBAC: Только для Администратора ---
+	// NOTE: Раскомментировать, когда функция requireAdmin будет доступна
+	// if !requireAdmin(w, r) {
+	// 	return
+	// }
+	// ---------------------------------------
+
 	vars := mux.Vars(r)
 	idStr := vars["id"]
 	id, err := strconv.Atoi(idStr)
 	if err != nil {
-		http.Error(w, "Invalid participation ID", http.StatusBadRequest)
+		writeErrorResponse(w, http.StatusBadRequest, "Invalid participation ID")
 		return
 	}
 
 	if err := h.service.Delete(r.Context(), id); err != nil {
-		if strings.Contains(err.Error(), "not found") {
-			http.Error(w, "Participation not found", http.StatusNotFound)
-			return
-		}
-		http.Error(w, "Internal server error deleting participation", http.StatusInternalServerError)
+		// Используем writeErrorResponse для гарантированного возврата JSON
+		writeErrorResponse(w, http.StatusInternalServerError, fmt.Sprintf("Failed to delete participation: %v", err))
 		return
 	}
 
+	// HTTP Status 204 No Content обычно не возвращает тело
 	w.WriteHeader(http.StatusNoContent)
 }

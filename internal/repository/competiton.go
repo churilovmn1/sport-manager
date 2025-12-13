@@ -81,6 +81,9 @@ func (r *CompetitionRepository) ListAll(ctx context.Context) ([]Competition, err
 		}
 		competitions = append(competitions, c)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("rows iteration error: %w", err)
+	}
 	return competitions, nil
 }
 

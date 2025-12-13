@@ -2,161 +2,149 @@ package handler
 
 import (
 	"encoding/json"
-	"log" // <-- Добавлен для логгирования ошибок
+	"fmt"
+	"log"
 	"net/http"
-	"strconv"
-	"strings"
-
 	"sport-manager/internal/repository"
 	"sport-manager/internal/service"
+	"strconv"
+	"time"
 
 	"github.com/gorilla/mux"
 )
 
-// AthleteHandler обрабатывает HTTP-запросы для спортсменов
+// NOTE: Предполагается, что функции writeErrorResponse и writeJSONResponse
+// определены в этом или другом файле в пакете handler и доступны.
+
+// AthleteHandler представляет HTTP-хендлеры для работы со спортсменами
 type AthleteHandler struct {
 	service *service.AthleteService
 }
 
-func NewAthleteHandler(s *service.AthleteService) *AthleteHandler {
-	return &AthleteHandler{service: s}
+func NewAthleteHandler(service *service.AthleteService) *AthleteHandler {
+	return &AthleteHandler{service: service}
 }
 
-// helper
-func writeJSONResponse(w http.ResponseWriter, status int, data interface{}) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	if data != nil {
-		json.NewEncoder(w).Encode(data)
-	}
-}
-
-// ----------------------------------------------------
-// 1. POST /api/v1/athletes (Create)
-// ----------------------------------------------------
+// CreateAthlete обрабатывает POST-запрос на создание нового спортсмена
 func (h *AthleteHandler) CreateAthlete(w http.ResponseWriter, r *http.Request) {
-	var athlete repository.Athlete
-	if err := json.NewDecoder(r.Body).Decode(&athlete); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+	var input struct {
+		FullName  string `json:"full_name"`
+		BirthDate string `json:"birth_date"`
+		Gender    string `json:"gender"`
+		// SportID и RankID УДАЛЕНЫ
+		IsActive bool   `json:"is_active"`
+		Address  string `json:"address"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		writeErrorResponse(w, http.StatusBadRequest, "Invalid JSON input")
 		return
 	}
 
-	// --- ИСПРАВЛЕНИЕ 1: Инициализация обязательных полей ---
-	// Фронтенд не присылает Gender. Если это обязательное поле в БД, нужно дать заглушку.
-	if athlete.Gender == "" {
-		athlete.Gender = "Не указан" 
-	}
-	if !athlete.IsActive {
-        athlete.IsActive = true // Предполагаем, что новый спортсмен активен
-    }
-	// -------------------------------------------------------
+	var birthDate time.Time
+	var err error
 
-	if err := h.service.Create(r.Context(), &athlete); err != nil {
-		// --- ИСПРАВЛЕНИЕ 2: ДИАГНОСТИЧЕСКИЙ ЛОГ ---
-		log.Printf("ERROR: Athlete creation failed. Input: %+v. Server Error: %v", athlete, err)
-		// ------------------------------------------
+	// Корректный парсинг даты
+	birthDate, err = time.Parse(time.RFC3339Nano, input.BirthDate)
 
-		if strings.Contains(err.Error(), "validation error") {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		// Улучшенный ответ для фронтенда, чтобы намекнуть на проблему с внешним ключом
-		http.Error(w, "Ошибка создания спортсмена на сервере. Возможно, неверный ID спорта/разряда.", http.StatusInternalServerError)
+	if err != nil {
+		writeErrorResponse(w, http.StatusBadRequest, fmt.Sprintf("Invalid birth date format. Error: %v", err))
 		return
 	}
 
-	writeJSONResponse(w, http.StatusCreated, athlete)
+	if input.Gender == "" {
+		input.Gender = "M"
+	}
+
+	athlete := &repository.Athlete{
+		FullName:  input.FullName,
+		BirthDate: birthDate,
+		Gender:    input.Gender,
+		// SportID и RankID УДАЛЕНЫ
+		IsActive: true,
+		Address:  input.Address,
+	}
+
+	if err := h.service.CreateAthlete(r.Context(), athlete); err != nil {
+		writeErrorResponse(w, http.StatusInternalServerError, fmt.Sprintf("Failed to create athlete: %v", err))
+		return
+	}
+
+	writeJSONResponse(w, http.StatusCreated, map[string]interface{}{"status": "success", "id": athlete.ID})
 }
 
-// ----------------------------------------------------
-// 2. GET /api/v1/athletes/{id} (Read One)
-// ----------------------------------------------------
-func (h *AthleteHandler) GetAthlete(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	idStr := vars["id"]
-	id, err := strconv.Atoi(idStr)
+// ListAllAthletes обрабатывает GET-запрос на получение всех спортсменов
+func (h *AthleteHandler) ListAllAthletes(w http.ResponseWriter, r *http.Request) {
+	athletes, err := h.service.ListAll(r.Context())
 	if err != nil {
-		http.Error(w, "Invalid athlete ID", http.StatusBadRequest)
-		return
-	}
-
-	athlete, err := h.service.GetByID(r.Context(), id)
-	if err != nil {
-		if strings.Contains(err.Error(), "not found") {
-			http.Error(w, "Athlete not found", http.StatusNotFound)
-			return
-		}
-		http.Error(w, "Internal server error retrieving athlete", http.StatusInternalServerError)
-		return
-	}
-
-	writeJSONResponse(w, http.StatusOK, athlete)
-}
-
-// ----------------------------------------------------
-// 3. GET /api/v1/athletes (Read All)
-// ----------------------------------------------------
-func (h *AthleteHandler) ListAthletes(w http.ResponseWriter, r *http.Request) {
-	athletes, err := h.service.GetAll(r.Context())
-	if err != nil {
-		http.Error(w, "Internal server error listing athletes", http.StatusInternalServerError)
+		writeErrorResponse(w, http.StatusInternalServerError, fmt.Sprintf("Failed to list athletes: %v", err))
 		return
 	}
 
 	writeJSONResponse(w, http.StatusOK, athletes)
 }
 
-// ----------------------------------------------------
-// 4. PUT /api/v1/athletes/{id} (Update)
-// ----------------------------------------------------
-func (h *AthleteHandler) UpdateAthlete(w http.ResponseWriter, r *http.Request) {
+// GetAthleteByID обрабатывает GET-запрос на получение спортсмена по ID
+func (h *AthleteHandler) GetAthleteByID(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
-	idStr := vars["id"]
-	id, err := strconv.Atoi(idStr)
+	id, err := strconv.Atoi(vars["id"])
 	if err != nil {
-		http.Error(w, "Invalid athlete ID", http.StatusBadRequest)
+		writeErrorResponse(w, http.StatusBadRequest, "Invalid athlete ID")
 		return
 	}
 
-	var athlete repository.Athlete
-	if err := json.NewDecoder(r.Body).Decode(&athlete); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
-		return
-	}
-	athlete.ID = id // Убеждаемся, что обновляем правильный ID
-
-	if err := h.service.Update(r.Context(), &athlete); err != nil {
-		if strings.Contains(err.Error(), "not found") {
-			http.Error(w, "Athlete not found", http.StatusNotFound)
-			return
-		}
-		http.Error(w, "Internal server error updating athlete", http.StatusInternalServerError)
+	athlete, err := h.service.GetByID(r.Context(), id)
+	if err != nil {
+		writeErrorResponse(w, http.StatusNotFound, fmt.Sprintf("Athlete not found: %v", err))
 		return
 	}
 
 	writeJSONResponse(w, http.StatusOK, athlete)
 }
 
-// ----------------------------------------------------
-// 5. DELETE /api/v1/athletes/{id} (Delete)
-// ----------------------------------------------------
+// UpdateAthlete обрабатывает PUT-запрос на обновление спортсмена
+func (h *AthleteHandler) UpdateAthlete(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id, err := strconv.Atoi(vars["id"])
+	if err != nil {
+		writeErrorResponse(w, http.StatusBadRequest, "Invalid athlete ID")
+		return
+	}
+
+	var input repository.Athlete
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		writeErrorResponse(w, http.StatusBadRequest, "Invalid JSON input")
+		return
+	}
+
+	input.ID = id
+
+	if err := h.service.Update(r.Context(), &input); err != nil {
+		writeErrorResponse(w, http.StatusInternalServerError, fmt.Sprintf("Failed to update athlete: %v", err))
+		return
+	}
+
+	writeJSONResponse(w, http.StatusOK, map[string]string{"status": "success"})
+}
+
+// DeleteAthlete обрабатывает DELETE-запрос на удаление спортсмена
 func (h *AthleteHandler) DeleteAthlete(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
-	idStr := vars["id"]
-	id, err := strconv.Atoi(idStr)
+	id, err := strconv.Atoi(vars["id"])
 	if err != nil {
-		http.Error(w, "Invalid athlete ID", http.StatusBadRequest)
+		writeErrorResponse(w, http.StatusBadRequest, "Invalid athlete ID")
 		return
 	}
+
+	log.Printf("Handler: Attempting to delete athlete with ID: %d", id)
 
 	if err := h.service.Delete(r.Context(), id); err != nil {
-		if strings.Contains(err.Error(), "not found") {
-			http.Error(w, "Athlete not found", http.StatusNotFound)
-			return
-		}
-		http.Error(w, "Internal server error deleting athlete", http.StatusInternalServerError)
+		log.Printf("Handler: Deletion failed for ID %d: %v", id, err)
+		writeErrorResponse(w, http.StatusNotFound, fmt.Sprintf("Failed to delete athlete: %v", err))
 		return
 	}
 
-	writeJSONResponse(w, http.StatusNoContent, nil) // 204 No Content
+	log.Printf("Handler: Successfully deleted athlete with ID: %d", id)
+
+	writeJSONResponse(w, http.StatusOK, map[string]string{"status": "success"})
 }

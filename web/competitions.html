@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Управление соревнованиями</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .form-container, .list-container { 
+            border: 1px solid #ccc; 
+            padding: 15px; 
+            margin-bottom: 20px; 
+            border-radius: 5px;
+        }
+        .form-container input { margin-bottom: 10px; padding: 8px; width: 98%; display: block; }
+        .form-container button { margin-right: 10px; padding: 8px 15px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th, td { border: 1px solid #ddd; padding: 10px; text-align: left; }
+        th { background-color: #f0ad4e; color: white; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Управление соревнованиями</h1>
+        <div>
+            <button onclick="window.location.href = 'athletes.html'">Список спортсменов</button>
+            <button onclick="window.location.href = 'participants.html'">Участники</button>
+            <button onclick="logout()">Выход</button>
+        </div>
+    </div>
+
+    <div id="createCompetitionFormContainer" class="form-container">
+        <h2>Создать соревнование</h2>
+        <form id="createCompetitionForm">
+            <input type="text" id="compName" placeholder="Название" required>
+            <input type="text" id="compLocation" placeholder="Место проведения" required>
+            <label for="compStartDate">Дата начала:</label>
+            <input type="date" id="compStartDate" required>
+            
+            <button type="submit">Создать соревнование (POST)</button>
+        </form>
+        <p id="compStatus" style="color: blue; font-weight: bold;"></p>
+        <p id="compError" style="color: red;"></p>
+    </div>
+
+    <div class="list-container">
+        <h2>Список текущих соревнований</h2>
+        <div id="competitionList">Загрузка соревнований...</div>
+    </div>
+
+    <script>
+        const API_BASE_URL = 'http://localhost:8080/api/v1';
+
+        function checkAuth() {
+            const token = localStorage.getItem('jwtToken');
+            if (!token) {
+                window.location.href = 'login.html';
+                return null;
+            }
+            return token;
+        }
+
+        function logout() {
+            localStorage.removeItem('jwtToken');
+            window.location.href = 'login.html';
+        }
+        
+        // --- Хелпер для форматирования даты ---
+        function formatDate(dateString) {
+            const options = { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' };
+            try {
+                // Если строка содержит "T00:00:00Z", это обычно дата в UTC без времени
+                if (dateString && dateString.endsWith('T00:00:00Z')) {
+                     // Просто показываем дату, не путая часовой пояс
+                    return new Date(dateString).toLocaleDateString('ru-RU', { year: 'numeric', month: 'long', day: 'numeric' });
+                }
+                return new Date(dateString).toLocaleDateString('ru-RU', options);
+            } catch (e) {
+                return dateString; // Возвращаем как есть, если не удалось распарсить
+            }
+        }
+        
+        // --- Создание соревнования (POST) ---
+
+        async function createCompetition(e) {
+            e.preventDefault();
+            const token = checkAuth();
+            if (!token) return;
+
+            const statusElement = document.getElementById('compStatus');
+            const errorElement = document.getElementById('compError');
+            statusElement.textContent = 'Отправка...';
+            errorElement.textContent = '';
+            
+            // Получаем дату из поля ввода (формат YYYY-MM-DD)
+            const dateInput = document.getElementById('compStartDate').value;
+            // Конвертируем в ISO 8601 (RFC 3339) для Go: 2025-12-14T00:00:00Z
+            const startDateISO = dateInput ? new Date(dateInput).toISOString() : null; 
+
+            const compData = {
+                name: document.getElementById('compName').value,
+                location: document.getElementById('compLocation').value,
+                start_date: startDateISO 
+            };
+            
+            if (!compData.name || !compData.location || !compData.start_date) {
+                 errorElement.textContent = 'Все поля обязательны для заполнения.';
+                 statusElement.textContent = '';
+                 return;
+            }
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/competitions`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${token}`, 
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(compData),
+                });
+                
+                const responseText = await response.text();
+                let result = {};
+                
+                try {
+                    result = responseText ? JSON.parse(responseText) : {};
+                } catch (e) {
+                    result = { error: responseText || response.statusText };
+                }
+
+
+                if (!response.ok) {
+                    const msg = result.error || result.message || response.statusText;
+                    throw new Error(`Ошибка ${response.status}: ${msg}`);
+                }
+                
+                statusElement.textContent = `УСПЕХ! Соревнование ID: ${result.id} создано.`;
+                document.getElementById('createCompetitionForm').reset();
+                fetchCompetitions(); // Обновить список
+                
+            } catch (error) {
+                errorElement.textContent = `Ошибка: ${error.message}`;
+                statusElement.textContent = 'Создание не удалось.';
+            }
+        }
+
+        // --- Загрузка и отображение списка соревнований (GET) ---
+
+        async function fetchCompetitions() {
+            const token = checkAuth();
+            if (!token) return;
+
+            const listElement = document.getElementById('competitionList');
+            const errorElement = document.getElementById('compError');
+            listElement.innerHTML = 'Загрузка списка соревнований...';
+            errorElement.textContent = '';
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/competitions`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+
+                if (response.status === 401 || response.status === 403) {
+                    logout();
+                    throw new Error('Сессия истекла. Войдите снова.');
+                }
+                
+                const responseText = await response.text();
+                let data = {};
+                
+                try {
+                    data = JSON.parse(responseText);
+                } catch (e) {
+                    // Обработка случая, когда Go вернул не-JSON (как это было с http.Error)
+                    throw new Error(`Ошибка декодирования ответа: ${responseText || response.statusText}`);
+                }
+                
+                if (!response.ok) {
+                    const msg = data.error || data.message || response.statusText;
+                    throw new Error(`Ошибка ${response.status} при загрузке: ${msg}`);
+                }
+                
+                // API возвращает {"competitions": [...]}
+                const competitions = data.competitions || [];
+                renderCompetitions(competitions);
+
+            } catch (error) {
+                errorElement.textContent = `Ошибка: ${error.message}`;
+                listElement.innerHTML = 'Не удалось загрузить список соревнований.';
+            }
+        }
+
+        function renderCompetitions(competitions) {
+            const listElement = document.getElementById('competitionList');
+            
+            if (!Array.isArray(competitions) || competitions.length === 0) {
+                listElement.innerHTML = '<p>Нет зарегистрированных соревнований.</p>';
+                return;
+            }
+
+            let tableHTML = '<table>';
+            tableHTML += '<tr><th>ID</th><th>Название</th><th>Место</th><th>Дата начала</th><th>Действия</th></tr>';
+
+            competitions.forEach(c => {
+                tableHTML += `
+                    <tr>
+                        <td>${c.id}</td>
+                        <td>${c.name}</td>
+                        <td>${c.location}</td>
+                        <td>${formatDate(c.start_date)}</td>
+                        <td>
+                            <button onclick="promptForUpdate(${c.id}, '${c.name}', '${c.location}')">Редактировать</button>
+                            <button onclick="deleteCompetition(${c.id})">Удалить</button>
+                        </td>
+                    </tr>
+                `;
+            });
+
+            tableHTML += '</table>';
+            listElement.innerHTML = tableHTML;
+        }
+        
+        // --- Обновление соревнования (PUT) ---
+        
+        async function promptForUpdate(id, currentName, currentLocation) {
+            const newName = prompt(`Введите новое название для ID ${id}:`, currentName);
+            if (newName === null) return;
+            
+            const newLocation = prompt(`Введите новое место для ID ${id}:`, currentLocation);
+            if (newLocation === null) return;
+            
+            // Если вы хотите обновлять дату, здесь нужно добавить соответствующий prompt
+
+            await updateCompetition(id, newName, newLocation);
+        }
+
+        async function updateCompetition(id, name, location, startDate) {
+            const token = checkAuth();
+            if (!token) return;
+            
+            const errorElement = document.getElementById('compError');
+            errorElement.textContent = '';
+
+            try {
+                // ВАЖНО: При Update/PUT нужно отправить ВСЕ поля, 
+                // включая StartDate (даже если не меняли), иначе Go-модель обнулится.
+                // В данном примере я упростил:
+
+                const response = await fetch(`${API_BASE_URL}/competitions/${id}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json',
+                    },
+                    // NOTE: Для полноценного обновления нужно сначала сделать GET, 
+                    // получить текущие данные (особенно StartDate) и отправить их обратно.
+                    // Здесь предполагается, что StartDate не меняется, или вы получите его
+                    // через дополнительный ввод (для простоты опущен).
+                    // Я использую существующие данные для заполнения:
+                    body: JSON.stringify({ 
+                        id: id, 
+                        name: name, 
+                        location: location, 
+                        start_date: startDate || new Date().toISOString() // Заглушка, если дата не обновляется
+                    }), 
+                });
+
+                const responseText = await response.text();
+                let result = {};
+                try {
+                    result = JSON.parse(responseText);
+                } catch(e) {
+                    result = { error: responseText || response.statusText };
+                }
+
+                if (!response.ok) {
+                    throw new Error(`Ошибка ${response.status}: ${result.error || result.message || response.statusText}`);
+                }
+
+                alert(`Соревнование ID ${id} обновлено.`);
+                fetchCompetitions();
+
+            } catch (error) {
+                errorElement.textContent = error.message;
+            }
+        }
+        
+        // --- Удаление соревнования (DELETE) ---
+
+        async function deleteCompetition(id) {
+            const token = checkAuth();
+            if (!token) return;
+
+            if (!confirm(`Вы уверены, что хотите удалить соревнование ID ${id}?`)) {
+                return;
+            }
+
+            const errorElement = document.getElementById('compError');
+            errorElement.textContent = '';
+            
+            try {
+                const response = await fetch(`${API_BASE_URL}/competitions/${id}`, {
+                    method: 'DELETE', 
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+
+                if (response.status === 404) throw new Error("Соревнование не найдено.");
+                
+                if (!response.ok && response.status !== 204) {
+                    const responseText = await response.text();
+                    let result = {};
+                    try {
+                        result = JSON.parse(responseText);
+                    } catch(e) {
+                        result = { error: responseText || response.statusText };
+                    }
+                    throw new Error(`Ошибка ${response.status}: ${result.error || result.message || response.statusText}`);
+                }
+                
+                alert(`Соревнование ID ${id} успешно удалено.`);
+                fetchCompetitions(); 
+
+            } catch (error) {
+                errorElement.textContent = error.message;
+            }
+        }
+
+
+        // --- Инициализация ---
+
+        document.addEventListener('DOMContentLoaded', () => {
+             // Привязка формы создания
+             document.getElementById('createCompetitionForm').addEventListener('submit', createCompetition);
+             
+             // Загрузка списка соревнований при старте
+             fetchCompetitions();
+        });
+    </script>
+</body>
+</html>

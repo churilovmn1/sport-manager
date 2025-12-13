@@ -1,72 +1,68 @@
 package config
 
 import (
-	"log"
-	"os"
-	"strconv"
+	"time"
 
-	"github.com/joho/godotenv"
+	"github.com/spf13/viper"
 )
 
 // Config содержит все настройки приложения.
 type Config struct {
-	// Настройки сервера
-	HTTPServerPort int
+	// Database settings
+	DBHost     string `mapstructure:"DB_HOST"`
+	DBPort     int    `mapstructure:"DB_PORT"`
+	DBUser     string `mapstructure:"DB_USER"`
+	DBPassword string `mapstructure:"DB_PASSWORD"`
+	DBName     string `mapstructure:"DB_NAME"`
 
-	// Настройки базы данных (PostgreSQL)
-	DBHost     string
-	DBPort     int
-	DBUser     string
-	DBPassword string
-	DBName     string
+	// HTTP Server settings
+	HTTPServerPort int `mapstructure:"HTTP_SERVER_PORT"`
 
-	// Настройки безопасности
-	JWTSecret string
+	// JWT settings
+	JWTSecret             string        `mapstructure:"JWT_SECRET"`
+	JWTExpirationDuration time.Duration `mapstructure:"JWT_EXPIRATION_DURATION"`
 }
 
-// LoadConfig загружает конфигурацию из переменных окружения (или .env файла).
+// LoadConfig загружает настройки из файла или переменных окружения.
 func LoadConfig() (*Config, error) {
-	// Загружаем .env файл для локальной разработки
-	if err := godotenv.Load(); err != nil {
-		log.Println("No .env file found, relying on environment variables.")
+	// 1. Устанавливаем пути поиска и тип файла
+	viper.AddConfigPath(".")
+	viper.SetConfigName("app") // Ищет файл с именем 'app.env'
+	viper.SetConfigType("env")
+
+	// 2. Устанавливаем настройки для чтения переменных окружения (более высокий приоритет, чем значения по умолчанию)
+	viper.AutomaticEnv()
+
+	// 3. Устанавливаем значения по умолчанию (самый низкий приоритет)
+	// Эти значения будут использоваться, только если ни файл, ни переменные окружения не найдены.
+	viper.SetDefault("DB_HOST", "localhost")
+	viper.SetDefault("DB_PORT", 5432)
+	viper.SetDefault("HTTP_SERVER_PORT", 8080)
+	viper.SetDefault("JWT_EXPIRATION_DURATION", time.Hour*24)
+
+	// 4. Читаем файл конфигурации
+	if err := viper.ReadInConfig(); err != nil {
+		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
+			return nil, err
+		}
+		// Файл не найден.
+
+		// === КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ ПРИОРИТЕТА ===
+		// Если файл не найден, мы явно устанавливаем нужные DB-значения.
+		// Это гарантирует, что они перекроют любое системное имя пользователя Windows ("Makar"),
+		// которое могло быть подобрано через viper.AutomaticEnv().
+		viper.Set("DB_USER", "postgres")
+		viper.Set("DB_PASSWORD", "student")
+		viper.Set("DB_NAME", "sport_manager") // Также убедимся, что имя БД задано
+
+		// Логирование, что файл не найден, но мы используем значения по умолчанию
+		// log.Println("Config file not found, using environment variables and hardcoded defaults.")
 	}
 
-	cfg := &Config{
-		// Значения по умолчанию для порта, если не указаны
-		HTTPServerPort: getIntEnv("HTTP_PORT", 8080),
-
-		DBHost:     getEnv("DB_HOST", "localhost"),
-		DBPort:     getIntEnv("DB_PORT", 5432),
-		DBUser:     getEnv("DB_USER", "postgres"),
-		DBPassword: getEnv("DB_PASSWORD", "postgres"),
-		DBName:     getEnv("DB_NAME", "sport_manager_db"),
-
-		// Секретный ключ для JWT. Крайне важно, чтобы он был установлен.
-		JWTSecret: getEnv("JWT_SECRET", "super_secret_key_change_me_in_production"),
+	var cfg Config
+	if err := viper.Unmarshal(&cfg); err != nil {
+		return nil, err
 	}
 
-	return cfg, nil
-}
-
-// Вспомогательная функция для получения строковой переменной окружения
-func getEnv(key string, defaultValue string) string {
-	if value, exists := os.LookupEnv(key); exists {
-		return value
-	}
-	return defaultValue
-}
-
-// Вспомогательная функция для получения целочисленной переменной окружения
-func getIntEnv(key string, defaultValue int) int {
-	valueStr := getEnv(key, "")
-	if valueStr == "" {
-		return defaultValue
-	}
-
-	value, err := strconv.Atoi(valueStr)
-	if err != nil {
-		log.Printf("Warning: Invalid integer value for %s. Using default: %d", key, defaultValue)
-		return defaultValue
-	}
-	return value
+	return &cfg, nil
 }

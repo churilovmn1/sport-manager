@@ -1,0 +1,17 @@
+# Go Binaries and compiled files
+*.exe
+*.test
+*.out
+
+# Dependencies
+/vendor/
+
+# Configuration and Secrets
+.env
+*.log
+/tmp/
+/bin/
+
+# IDE / Editor specific files
+.idea/
+.vscode/

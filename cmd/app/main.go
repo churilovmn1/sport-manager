@@ -31,6 +31,7 @@ func main() {
 		cfg.DBUser, cfg.DBPassword, cfg.DBHost, cfg.DBPort, cfg.DBName)
 
 	log.Println("Attempting to run database migrations...")
+	// NOTE: Убедитесь, что миграции, добавляющие "place" и удаляющие "sport_id", выполнены!
 	if err := utils.RunMigrations(dbURL, "migrations"); err != nil {
 		log.Fatalf("FATAL: Database migration failed: %v", err)
 	}
@@ -51,24 +52,18 @@ func main() {
 	athleteRepo := repository.NewAthleteRepository(db)
 	competitionRepo := repository.NewCompetitionRepository(db)
 	participationRepo := repository.NewParticipationRepository(db)
-	sportRepo := repository.NewSimpleRepository(db, "sports")
-	rankRepo := repository.NewSimpleRepository(db, "ranks")
 
 	// --- Services ---
 	authService := service.NewAuthService(authRepo, cfg)
 	athleteService := service.NewAthleteService(athleteRepo)
 	competitionService := service.NewCompetitionService(competitionRepo)
 	participationService := service.NewParticipationService(participationRepo, athleteRepo, competitionRepo)
-	sportService := service.NewSimpleService(sportRepo)
-	rankService := service.NewSimpleService(rankRepo)
 
 	// --- Handlers ---
 	authHandler := handler.NewAuthHandler(authService)
 	athleteHandler := handler.NewAthleteHandler(athleteService)
 	competitionHandler := handler.NewCompetitionHandler(competitionService)
 	participationHandler := handler.NewParticipationHandler(participationService)
-	sportHandler := handler.NewSimpleHandler(sportService)
-	rankHandler := handler.NewSimpleHandler(rankService)
 
 	// 4. Настройка роутера (mux)
 	router := mux.NewRouter()
@@ -80,28 +75,19 @@ func main() {
 	}).Methods("GET")
 	router.HandleFunc("/api/v1/auth/login", authHandler.Login).Methods("POST")
 
-	// --- 4.2. Обслуживание HTML-страниц (до API роутера) ---
-	router.PathPrefix("/home.html").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.ServeFile(w, r, "./web/home.html")
-	})
-	router.PathPrefix("/participants.html").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.ServeFile(w, r, "./web/participants.html")
-	})
-	router.PathPrefix("/index.html").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.ServeFile(w, r, "./web/index.html")
-	})
-	router.PathPrefix("/competitions.html").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.ServeFile(w, r, "./web/competitions.html")
-	})
+	// NOTE: Удалены явные PathPrefix для .html файлов (participants.html, athletes.html, competitions.html).
+	// Они будут обслуживаться универсальным FileServer ниже.
 
-	// --- 4.3. Защищенные маршруты (API CRUD) ---
+	// --- 4.2. Защищенные маршруты (API CRUD) ---
 	apiRouter := router.PathPrefix("/api/v1").Subrouter()
+	// NOTE: Если вы не залогинены, API запросы будут возвращать 401.
+	// Убедитесь, что AuthMiddleware (auth.AuthMiddleware(cfg)) работает корректно.
 	apiRouter.Use(auth.AuthMiddleware(cfg))
 
 	// CRUD: Спортсмены (Athletes)
 	apiRouter.HandleFunc("/athletes", athleteHandler.CreateAthlete).Methods("POST")
-	apiRouter.HandleFunc("/athletes", athleteHandler.ListAthletes).Methods("GET")
-	apiRouter.HandleFunc("/athletes/{id}", athleteHandler.GetAthlete).Methods("GET")
+	apiRouter.HandleFunc("/athletes", athleteHandler.ListAllAthletes).Methods("GET")
+	apiRouter.HandleFunc("/athletes/{id}", athleteHandler.GetAthleteByID).Methods("GET")
 	apiRouter.HandleFunc("/athletes/{id}", athleteHandler.UpdateAthlete).Methods("PUT")
 	apiRouter.HandleFunc("/athletes/{id}", athleteHandler.DeleteAthlete).Methods("DELETE")
 
@@ -119,17 +105,16 @@ func main() {
 	apiRouter.HandleFunc("/participations/{id}", participationHandler.DeleteParticipation).Methods("DELETE")
 
 	// CRUD: Справочники (Sports)
-	apiRouter.HandleFunc("/sports", sportHandler.Create).Methods("POST")
-	apiRouter.HandleFunc("/sports", sportHandler.ListAll).Methods("GET")
-	apiRouter.HandleFunc("/sports/{id}", sportHandler.Delete).Methods("DELETE")
+	
+	
 
 	// CRUD: Справочники (Ranks)
-	apiRouter.HandleFunc("/ranks", rankHandler.Create).Methods("POST")
-	apiRouter.HandleFunc("/ranks", rankHandler.ListAll).Methods("GET")
-	apiRouter.HandleFunc("/ranks/{id}", rankHandler.Delete).Methods("DELETE")
+	
+	
 
 	// -----------------------------------------------------------------
-	// 4.4. Обслуживание статических файлов по умолчанию (например, login.html)
+	// 4.3. ОБСЛУЖИВАНИЕ СТАТИЧЕСКИХ ФАЙЛОВ (ОДИН УНИВЕРСАЛЬНЫЙ МАРШРУТ)
+	// Этот маршрут должен быть ПОСЛЕДНИМ, чтобы не перехватывать /api/v1.
 	// -----------------------------------------------------------------
 	fileServer := http.FileServer(http.Dir("./web/"))
 	router.PathPrefix("/").Handler(fileServer)
