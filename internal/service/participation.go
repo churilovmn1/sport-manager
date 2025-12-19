@@ -7,13 +7,15 @@ import (
 	"sport-manager/internal/repository"
 )
 
-// ParticipationService содержит бизнес-логику для участия
+// ParticipationService управляет логикой регистрации атлетов на соревнования.
+// Он координирует работу нескольких репозиториев для обеспечения целостности связей.
 type ParticipationService struct {
 	repo            *repository.ParticipationRepository
 	athleteRepo     *repository.AthleteRepository
 	competitionRepo *repository.CompetitionRepository
 }
 
+// NewParticipationService инициализирует сервис со всеми необходимыми зависимостями.
 func NewParticipationService(
 	repo *repository.ParticipationRepository,
 	athleteRepo *repository.AthleteRepository,
@@ -26,44 +28,55 @@ func NewParticipationService(
 	}
 }
 
-// Create создает новую запись об участии
+// --- БИЗНЕС-ЛОГИКА ---
+
+// Create регистрирует спортсмена на соревнование, предварительно проверяя их существование.
 func (s *ParticipationService) Create(ctx context.Context, p *repository.Participation) error {
+	// 1. Первичная валидация входных данных
 	if p.AthleteID == 0 || p.CompetitionID == 0 {
-		return fmt.Errorf("validation error: athlete ID and competition ID are required")
+		return fmt.Errorf("ошибка валидации: ID атлета и ID соревнования обязательны")
 	}
 
-	// Дополнительная проверка существования спортсмена и соревнования
+	// 2. Проверка существования атлета
+	// Это предотвращает создание "битых" связей в базе данных
 	if _, err := s.athleteRepo.GetByID(ctx, p.AthleteID); err != nil {
-		return fmt.Errorf("service: athlete not found: %w", err)
-	}
-	if _, err := s.competitionRepo.GetByID(ctx, p.CompetitionID); err != nil {
-		return fmt.Errorf("service: competition not found: %w", err)
+		return fmt.Errorf("service: указанный атлет не найден: %w", err)
 	}
 
+	// 3. Проверка существования соревнования
+	if _, err := s.competitionRepo.GetByID(ctx, p.CompetitionID); err != nil {
+		return fmt.Errorf("service: указанное соревнование не найдено: %w", err)
+	}
+
+	// 4. Сохранение записи в БД
 	return s.repo.Create(ctx, p)
 }
 
-// ListAll получает список всех участий.
-// NOTE: После обновления репозитория, этот метод теперь возвращает
-// структуру Participation с заполненными полями AthleteName и CompetitionName.
-// Дополнительная логика на уровне Service здесь не требуется.
+// ListAll возвращает расширенный список участий (с именами атлетов и названиями турниров).
 func (s *ParticipationService) ListAll(ctx context.Context) ([]repository.Participation, error) {
 	participations, err := s.repo.ListAll(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("service: failed to list participations: %w", err)
+		return nil, fmt.Errorf("service: не удалось получить список регистраций: %w", err)
 	}
 	return participations, nil
 }
 
-// UpdatePlace обновляет место в соревновании
+// UpdatePlace фиксирует результат (место), занятое атлетом.
 func (s *ParticipationService) UpdatePlace(ctx context.Context, id int, place int) error {
-	if id == 0 || place <= 0 {
-		return fmt.Errorf("validation error: valid ID and place number are required")
+	if id <= 0 {
+		return fmt.Errorf("ошибка: некорректный ID записи")
 	}
+	if place <= 0 {
+		return fmt.Errorf("ошибка валидации: занятое место должно быть положительным числом")
+	}
+
 	return s.repo.UpdatePlace(ctx, id, place)
 }
 
-// Delete удаляет запись об участии
+// Delete аннулирует участие атлета в соревновании.
 func (s *ParticipationService) Delete(ctx context.Context, id int) error {
+	if id <= 0 {
+		return fmt.Errorf("ошибка: некорректный ID для удаления")
+	}
 	return s.repo.Delete(ctx, id)
 }

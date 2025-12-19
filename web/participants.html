@@ -2,358 +2,216 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <title>Управление участниками соревнований</title>
+    <title>Регистрация на соревнования</title>
     <style>
-        body { font-family: Arial, sans-serif; margin: 20px; }
-        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
-        .form-container, .list-container { 
-            border: 1px solid #ccc; 
-            padding: 20px; 
-            margin-bottom: 20px; 
-            border-radius: 8px;
+        body { font-family: 'Segoe UI', Arial, sans-serif; margin: 20px; background-color: #f4f7f9; }
+        .container { max-width: 1000px; margin: auto; }
+        .card { background: white; padding: 25px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); margin-bottom: 20px; }
+        h2 { color: #333; margin-top: 0; border-bottom: 2px solid #eee; padding-bottom: 10px; }
+        
+        select, button { padding: 10px; border-radius: 6px; border: 1px solid #ddd; font-size: 15px; }
+        button { cursor: pointer; font-weight: bold; transition: 0.2s; border: none; }
+        
+        .btn-add { background: #28a745; color: white; width: 100%; margin-top: 10px; padding: 12px; }
+        .btn-edit { background: #ffc107; color: #212529; margin-right: 5px; padding: 5px 10px; border-radius: 4px; }
+        .btn-del { background: #dc3545; color: white; padding: 5px 10px; border-radius: 4px; }
+        .back-btn { background: #6c757d; color: white; text-decoration: none; padding: 8px 15px; display: inline-block; margin-bottom: 15px; border-radius: 4px; }
+
+        table { width: 100%; border-collapse: collapse; margin-top: 15px; background: white; }
+        th, td { border: 1px solid #dee2e6; padding: 12px; text-align: left; }
+        th { background-color: #4e73df; color: white; }
+        
+        /* Модальное окно */
+        #editModal {
+            display: none; position: fixed; z-index: 100; left: 0; top: 0; width: 100%; height: 100%;
+            background-color: rgba(0,0,0,0.5); justify-content: center; align-items: center;
         }
-        select, button { padding: 10px; margin-right: 10px; }
-        #error { color: red; font-weight: bold; }
-        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-        th, td { border: 1px solid #ddd; padding: 10px; text-align: left; }
-        th { background-color: #5cb85c; color: white; }
+        .modal-content { background: white; padding: 30px; border-radius: 10px; width: 350px; text-align: center; }
+        .modal-content label { display: block; margin-top: 15px; font-weight: bold; text-align: left; }
+        .modal-content select { width: 100%; margin-top: 5px; }
     </style>
 </head>
 <body>
-    <div class="header">
-        <h1>Управление участниками соревнований</h1>
-        <div>
-            <button onclick="window.location.href = 'athletes.html'">Список спортсменов</button>
-            <button onclick="logout()">Выход</button>
+
+<div class="container">
+    <a href="index.html" class="back-btn">← В меню</a>
+
+    <div class="card">
+        <h2>Регистрация участника</h2>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+            <div>
+                <label>Соревнование:</label>
+                <select id="compSel" style="width: 100%;"></select>
+            </div>
+            <div>
+                <label>Спортсмен:</label>
+                <select id="athSel" style="width: 100%;"></select>
+            </div>
+        </div>
+        <button class="btn-add" onclick="register()">Добавить в список</button>
+    </div>
+
+    <div class="card">
+        <h2>Список участников</h2>
+        <div id="partTable">Загрузка...</div>
+    </div>
+</div>
+
+<div id="editModal">
+    <div class="modal-content">
+        <h3>Редактировать запись</h3>
+        <input type="hidden" id="editId">
+        
+        <label>Турнир:</label>
+        <select id="editCompSel"></select>
+
+        <label>Атлет:</label>
+        <select id="editAthSel"></select>
+
+        <div style="display: flex; justify-content: space-between; margin-top: 25px; gap: 10px;">
+            <button onclick="closeModal()" style="background:#6c757d; color:white; flex: 1; padding: 10px;">Отмена</button>
+            <button onclick="updateParticipation()" style="background:#28a745; color:white; flex: 1; padding: 10px;">Сохранить</button>
         </div>
     </div>
+</div>
 
-    <div class="form-container">
-        <h2>Регистрация спортсмена на соревнование</h2>
-        <form id="addParticipationForm">
-            <p>Выберите соревнование:</p>
-            <select id="competitionSelect" required>
-                <option value="">-- Загрузка соревнований... --</option>
-            </select>
-            
-            <p>Выберите спортсмена:</p>
-            <select id="athleteSelect" required>
-                <option value="">-- Загрузка спортсменов... --</option>
-            </select>
-            
-            <br><br>
-            <button type="submit">Зарегистрировать участника</button>
-        </form>
-        <p id="participationStatus" style="color: blue; font-weight: bold;"></p>
-        <p id="error"></p>
-    </div>
+<script>
+    const API = 'http://localhost:8080/api/v1';
+    
+    // Функция для получения заголовков с актуальным токеном
+    const h = () => {
+        const token = localStorage.getItem('token');
+        if (!token) window.location.replace('login.html');
+        return {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+        };
+    };
 
-    <div class="list-container">
-        <h2>Текущие участники</h2>
-        <div id="participationList">Загрузка участников...</div>
-    </div>
+    async function init() {
+        await loadDropdowns();
+        await loadTable();
+    }
 
+    async function loadDropdowns() {
+        try {
+            const [cRes, aRes] = await Promise.all([
+                fetch(`${API}/competitions`, { headers: h() }),
+                fetch(`${API}/athletes`, { headers: h() })
+            ]);
+            const cData = await cRes.json();
+            const aData = await aRes.json();
 
-    <script>
-        const API_BASE_URL = 'http://localhost:8080/api/v1';
+            const comps = cData.competitions || cData || [];
+            const aths = Array.isArray(aData) ? aData : (aData.athletes || []);
 
-        function checkAuth() {
-            const token = localStorage.getItem('jwtToken');
-            if (!token) {
-                window.location.href = 'login.html';
-                return null;
-            }
-            return token;
-        }
-
-        function logout() {
-            localStorage.removeItem('jwtToken');
-            window.location.href = 'login.html';
-        }
-
-        // --- Загрузка данных для Dropdown'ов ---
-
-        async function fetchOptions(endpoint, selectId) {
-            const token = checkAuth();
-            if (!token) return;
-
-            const select = document.getElementById(selectId);
-            const errorElement = document.getElementById('error');
-            select.innerHTML = '<option value="">-- Загрузка... --</option>';
-            
-            try {
-                const response = await fetch(`${API_BASE_URL}/${endpoint}`, {
-                    headers: { 'Authorization': `Bearer ${token}` }
-                });
-                
-                if (response.status === 401 || response.status === 403) {
-                    logout();
-                    throw new Error('Сессия истекла. Войдите снова.');
-                }
-                
-                if (!response.ok) {
-                    const errorJson = await response.json().catch(() => ({ message: 'Internal Server Error' }));
-                    throw new Error(`Ошибка ${response.status}: ${errorJson.message || response.statusText}`);
-                }
-                
-                let data = await response.json();
-                
-                // Обработка разных форматов API (если возвращает объект с полем)
-                if (data.athletes) data = data.athletes;
-                if (data.competitions) data = data.competitions;
-                
-                select.innerHTML = '<option value="">-- Выберите --</option>';
-                data.forEach(item => {
-                    // Используем full_name для спортсменов и name для соревнований
-                    const name = item.full_name || item.name || `(ID: ${item.id})`; 
-                    const option = document.createElement('option');
-                    option.value = item.id;
-                    option.textContent = `${name}`;
-                    select.appendChild(option);
-                });
-
-            } catch (error) {
-                console.error(`Ошибка загрузки ${endpoint}:`, error);
-                errorElement.textContent = `Ошибка загрузки ${endpoint}: ${error.message}`;
-                select.innerHTML = '<option value="">-- Ошибка загрузки --</option>';
-            }
-        }
-
-        // --- Добавление участника (POST) ---
-
-        async function addParticipation(e) {
-            e.preventDefault();
-            const token = checkAuth();
-            if (!token) return;
-
-            const statusElement = document.getElementById('participationStatus');
-            const errorElement = document.getElementById('error');
-            statusElement.textContent = 'Отправка...';
-            errorElement.textContent = '';
-
-            const data = {
-                athlete_id: parseInt(document.getElementById('athleteSelect').value),
-                competition_id: parseInt(document.getElementById('competitionSelect').value),
-            };
-
-            if (!data.athlete_id || !data.competition_id) {
-                errorElement.textContent = 'Пожалуйста, выберите и спортсмена, и соревнование.';
-                statusElement.textContent = '';
-                return;
-            }
-
-            try {
-                const response = await fetch(`${API_BASE_URL}/participations`, {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${token}`, 
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify(data),
-                });
-                
-                const responseText = await response.text();
-                let result = {};
-                
-                try {
-                    result = responseText ? JSON.parse(responseText) : {};
-                } catch (e) {
-                    // Если сервер вернул не-JSON ошибку
-                    result = { error: responseText || response.statusText };
-                }
-
-
-                if (!response.ok) {
-                    const msg = result.error || result.message || response.statusText;
-                    throw new Error(`Ошибка ${response.status}: ${msg}`);
-                }
-                
-                statusElement.textContent = `УСПЕХ! Участник зарегистрирован (ID: ${result.id || data.athlete_id}).`;
-                document.getElementById('addParticipationForm').reset();
-                fetchParticipations(); // Обновить список после успеха
-                
-            } catch (error) {
-                errorElement.textContent = `Ошибка: ${error.message}`;
-                statusElement.textContent = 'Регистрация не удалась.';
-            }
-        }
-        
-        // --- Загрузка и отображение списка участников ---
-
-        async function fetchParticipations() {
-            const token = checkAuth();
-            if (!token) return;
-
-            const listElement = document.getElementById('participationList');
-            const errorElement = document.getElementById('error');
-            listElement.innerHTML = 'Загрузка списка участников...';
-            errorElement.textContent = '';
-
-            try {
-                const response = await fetch(`${API_BASE_URL}/participations`, {
-                    headers: { 'Authorization': `Bearer ${token}` }
-                });
-
-                if (response.status === 401 || response.status === 403) {
-                    logout();
-                    throw new Error('Сессия истекла. Войдите снова.');
-                }
-
-                if (!response.ok) {
-                    const responseText = await response.text();
-                    let errorJson = { message: 'Internal Server Error' };
-                    try {
-                        errorJson = JSON.parse(responseText);
-                    } catch (e) {
-                        errorJson.message = responseText || response.statusText;
-                    }
-                    throw new Error(`Ошибка ${response.status} при загрузке участников: ${errorJson.message}`);
-                }
-                
-                const participations = await response.json();
-                renderParticipations(participations);
-
-            } catch (error) {
-                errorElement.textContent = `Ошибка: ${error.message}`;
-                listElement.innerHTML = 'Не удалось загрузить список участников.';
-            }
-        }
-
-        function renderParticipations(participations) {
-            const listElement = document.getElementById('participationList');
-            
-            if (!Array.isArray(participations) || participations.length === 0) {
-                listElement.innerHTML = '<p>Нет зарегистрированных участников.</p>';
-                return;
-            }
-
-            let tableHTML = '<table>';
-            // Изменена шапка: убрана Дисквалификация
-            tableHTML += '<tr><th>ID</th><th>Спортсмен (ФИО)</th><th>Соревнование (Название)</th><th>Результат (Место)</th><th>Действия</th></tr>';
-
-            participations.forEach(p => {
-                const place = p.place === 0 ? '— (Нет результата)' : p.place;
-                // p.is_disqualified удалено из модели Go, поэтому убрано из HTML
-
-                tableHTML += `
-                    <tr>
-                        <td>${p.id}</td>
-                        <td>${p.athlete_name || p.athlete_id}</td>
-                        <td>${p.competition_name || p.competition_id}</td>
-                        <td>${place}</td>
-                        <td>
-                            <button onclick="promptForPlace(${p.id}, '${p.athlete_name || p.athlete_id}')">Обновить место</button>
-                            <button onclick="deleteParticipation(${p.id})">Удалить</button>
-                        </td>
-                    </tr>
-                `;
+            // Заполняем селекторы (основной и в модалке)
+            const compSels = [document.getElementById('compSel'), document.getElementById('editCompSel')];
+            compSels.forEach(s => {
+                s.innerHTML = '';
+                comps.forEach(c => s.add(new Option(c.name, c.id)));
             });
 
-            tableHTML += '</table>';
-            listElement.innerHTML = tableHTML;
-        }
+            const athSels = [document.getElementById('athSel'), document.getElementById('editAthSel')];
+            athSels.forEach(s => {
+                s.innerHTML = '';
+                aths.forEach(a => s.add(new Option(a.full_name, a.id)));
+            });
+        } catch (e) { console.error("Ошибка при загрузке списков", e); }
+    }
 
-        // --- Действия со списком ---
-        
-        async function promptForPlace(id, name) {
-            const place = prompt(`Введите место для участника ${name} (ID: ${id}):`);
-            const placeNum = parseInt(place);
-
-            if (place !== null && !isNaN(placeNum) && placeNum >= 1) {
-                await updatePlace(id, placeNum);
-            } else if (place !== null) {
-                alert("Неверный ввод. Место должно быть числом больше 0.");
-            }
-        }
-
-        async function updatePlace(id, place) {
-            const token = checkAuth();
-            if (!token) return;
+    async function loadTable() {
+        try {
+            const res = await fetch(`${API}/participations`, { headers: h() });
+            const list = await res.json();
+            const data = list.participations || list || [];
             
-            const errorElement = document.getElementById('error');
-            errorElement.textContent = '';
-
-            try {
-                const response = await fetch(`${API_BASE_URL}/participations/${id}/place`, {
-                    method: 'PUT',
-                    headers: {
-                        'Authorization': `Bearer ${token}`,
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ place: place }),
-                });
-
-                if (!response.ok) {
-                    const responseText = await response.text();
-                    let result = {};
-                    try {
-                        result = JSON.parse(responseText);
-                    } catch(e) {
-                        result = { error: responseText || response.statusText };
-                    }
-                    throw new Error(`Ошибка ${response.status}: ${result.error || result.message || response.statusText}`);
-                }
-
-                alert(`Место для участника ID ${id} обновлено на ${place}.`);
-                fetchParticipations();
-
-            } catch (error) {
-                errorElement.textContent = error.message;
-            }
+            let html = `<table><tr><th>Атлет</th><th>Турнир</th><th>Действия</th></tr>`;
+            data.forEach(p => {
+                html += `<tr>
+                    <td>${p.athlete_name || 'ID: '+p.athlete_id}</td>
+                    <td>${p.competition_name || 'ID: '+p.competition_id}</td>
+                    <td>
+                        <button class="btn-edit" onclick="openModal(${p.id}, ${p.athlete_id}, ${p.competition_id})">Ред.</button>
+                        <button class="btn-del" onclick="delPart(${p.id})">Удалить</button>
+                    </td>
+                </tr>`;
+            });
+            document.getElementById('partTable').innerHTML = html + "</table>";
+        } catch (e) { 
+            document.getElementById('partTable').innerHTML = "Ошибка загрузки участников"; 
         }
-        
-        async function deleteParticipation(id) {
-            const token = checkAuth();
-            if (!token) return;
+    }
 
-            if (!confirm(`Вы уверены, что хотите удалить участие ID ${id}?`)) {
-                return;
-            }
+    async function register() {
+        const cId = parseInt(document.getElementById('compSel').value);
+        const aId = parseInt(document.getElementById('athSel').value);
 
-            const errorElement = document.getElementById('error');
-            errorElement.textContent = '';
-            
-            try {
-                const response = await fetch(`${API_BASE_URL}/participations/${id}`, {
-                    method: 'DELETE', 
-                    headers: { 'Authorization': `Bearer ${token}` }
-                });
+        if (!cId || !aId) return alert("Выберите соревнование и атлета!");
 
-                if (response.status === 404) throw new Error("Запись об участии не найдена.");
-                
-                if (!response.ok && response.status !== 204) {
-                    const responseText = await response.text();
-                    let result = {};
-                    try {
-                        result = JSON.parse(responseText);
-                    } catch(e) {
-                        result = { error: responseText || response.statusText };
-                    }
-                    throw new Error(`Ошибка ${response.status}: ${result.error || result.message || response.statusText}`);
-                }
-                
-                alert(`Участие ID ${id} успешно удалено.`);
-                fetchParticipations(); 
+        const body = {
+            competition_id: cId,
+            athlete_id: aId,
+            place: 0 // Передаем 0, так как бэкенд может ждать это поле
+        };
 
-            } catch (error) {
-                errorElement.textContent = error.message;
-            }
-        }
-
-        // --- Инициализация ---
-
-        document.addEventListener('DOMContentLoaded', () => {
-             // 1. Загрузка спортсменов и соревнований
-             // NOTE: Вам нужно убедиться, что API /competitions существует!
-             fetchOptions('competitions', 'competitionSelect');
-             fetchOptions('athletes', 'athleteSelect');
-             
-             // 2. Загрузка списка участников
-             fetchParticipations();
-
-             // 3. Привязка формы
-             document.getElementById('addParticipationForm').addEventListener('submit', addParticipation);
+        const res = await fetch(`${API}/participations`, { 
+            method: 'POST', 
+            headers: h(), 
+            body: JSON.stringify(body) 
         });
-    </script>
+
+        if (res.ok) {
+            loadTable();
+        } else {
+            alert("Ошибка при регистрации участника");
+        }
+    }
+
+    function openModal(id, athId, compId) {
+        document.getElementById('editId').value = id;
+        document.getElementById('editAthSel').value = athId;
+        document.getElementById('editCompSel').value = compId;
+        document.getElementById('editModal').style.display = 'flex';
+    }
+
+    function closeModal() {
+        document.getElementById('editModal').style.display = 'none';
+    }
+
+    async function updateParticipation() {
+        const id = document.getElementById('editId').value;
+        const body = {
+            competition_id: parseInt(document.getElementById('editCompSel').value),
+            athlete_id: parseInt(document.getElementById('editAthSel').value),
+            place: 0
+        };
+
+        const res = await fetch(`${API}/participations/${id}`, { 
+            method: 'PUT', 
+            headers: h(), 
+            body: JSON.stringify(body) 
+        });
+
+        if (res.ok) { 
+            closeModal(); 
+            loadTable(); 
+        } else { 
+            alert("Ошибка при обновлении записи"); 
+        }
+    }
+
+    async function delPart(id) {
+        if (confirm("Вы действительно хотите удалить эту запись?")) {
+            const res = await fetch(`${API}/participations/${id}`, { 
+                method: 'DELETE', 
+                headers: h() 
+            });
+            if (res.ok) loadTable();
+        }
+    }
+
+    window.onload = init;
+</script>
 </body>
 </html>

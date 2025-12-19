@@ -2,96 +2,67 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <title>Вход в Sport Manager</title>
+    <title>Вход в систему</title>
     <style>
-        /* CSS стили для оформления */
-        body { font-family: Arial, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; background-color: #f4f4f4; }
-        .login-container { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 0 10px rgba(0, 0, 0, 0.1); width: 300px; }
-        input[type="text"], input[type="password"] { width: 100%; padding: 10px; margin: 8px 0; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
-        button { background-color: #007bff; color: white; padding: 10px 15px; border: none; border-radius: 4px; cursor: pointer; width: 100%; }
-        #message { color: red; margin-top: 10px; }
+        body { font-family: 'Segoe UI', Arial, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; background: #f0f2f5; margin: 0; }
+        .card { background: white; padding: 40px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); width: 350px; text-align: center; }
+        input { width: 100%; padding: 12px; margin: 10px 0; border: 1px solid #ddd; border-radius: 6px; box-sizing: border-box; }
+        button { width: 100%; padding: 12px; background: #4e73df; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; }
+        .error { color: #dc3545; font-size: 14px; margin-top: 10px; display: none; background: #f8d7da; padding: 8px; border-radius: 4px; }
+        .toggle-link { margin-top: 20px; font-size: 14px; color: #6c757d; }
+        .toggle-link span { color: #4e73df; cursor: pointer; text-decoration: underline; }
     </style>
 </head>
 <body>
-    <div class="login-container">
-        <h2>Вход в систему</h2>
-        
-        <form id="loginForm"> 
-            <label for="username">Имя пользователя:</label>
-            <input type="text" id="username" name="username" required> 
-
-            <label for="password">Пароль:</label>
-            <input type="password" id="password" name="password" required>
-            
-            <button type="submit">Войти</button>
-            <p id="message"></p>
-        </form>
+<div class="card">
+    <h1 id="formTitle">Вход</h1>
+    <input type="text" id="user" placeholder="Логин">
+    <input type="password" id="pass" placeholder="Пароль">
+    <button id="mainBtn" onclick="handleSubmit()">Войти</button>
+    <p id="err" class="error"></p>
+    <div class="toggle-link">
+        <span id="toggleText" onclick="toggleForm()">Нет аккаунта? Зарегистрироваться</span>
     </div>
+</div>
 
-    <script>
-        // Установим значения по умолчанию после загрузки DOM
-        document.addEventListener('DOMContentLoaded', () => {
-             document.getElementById('username').value = 'admin';
-             document.getElementById('password').value = 'admin123';
-        });
+<script>
+    let isLogin = true;
+    function toggleForm() {
+        isLogin = !isLogin;
+        document.getElementById('formTitle').innerText = isLogin ? "Вход" : "Регистрация";
+        document.getElementById('mainBtn').innerText = isLogin ? "Войти" : "Создать аккаунт";
+        document.getElementById('toggleText').innerText = isLogin ? "Нет аккаунта? Зарегистрироваться" : "Уже есть аккаунт? Войти";
+    }
 
-        document.getElementById('loginForm').addEventListener('submit', async function(e) {
-            
-            // --- КРИТИЧЕСКИ ВАЖНО: Предотвращаем стандартную отправку формы! ---
-            e.preventDefault(); 
-
-            const username = document.getElementById('username').value;
-            const password = document.getElementById('password').value;
-            const messageElement = document.getElementById('message');
-            messageElement.textContent = '';
-            
-            const LOGIN_URL = 'http://localhost:8080/api/v1/auth/login';
-
-            // --- Диагностический alert (можно удалить после успешного входа) ---
-            alert('Используемый URL: ' + LOGIN_URL); 
-            // -------------------------------------------------------------------
-
-            try {
-                // 1. Отправка запроса на ваш Go-API
-                const response = await fetch(LOGIN_URL, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ username, password }),
-                });
-
-                // Обработка ошибок, включая 401 Unauthorized
-                if (!response.ok) {
-                    let errorMessage = 'Ошибка входа. Проверьте учетные данные.';
-                    
-                    try {
-                        const errorData = await response.json();
-                        // Если Go-сервер вернул JSON с ошибкой (напр., {"error": "Invalid credentials"})
-                        errorMessage = errorData.error || errorMessage;
-                    } catch (e) {
-                        // Если Go-сервер вернул не-JSON (напр., 404 HTML), 
-                        errorMessage = `Ошибка: Сервер вернул статус ${response.status}. Возможно, неверный URL API.`;
-                    }
-                    
-                    throw new Error(errorMessage);
+    async function handleSubmit() {
+        const username = document.getElementById('user').value;
+        const password = document.getElementById('pass').value;
+        const path = isLogin ? '/auth/login' : '/auth/register';
+        
+        try {
+            const res = await fetch(`http://localhost:8080/api/v1${path}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username, password })
+            });
+            const data = await res.json();
+            if (res.ok) {
+                if (isLogin) {
+                    // Сохраняем токен (проверяем все варианты поля)
+                    const token = data.token || data.access_token || data;
+                    localStorage.setItem('token', token);
+                    window.location.replace('index.html');
+                } else {
+                    alert("Успешно! Теперь войдите.");
+                    toggleForm();
                 }
-
-                // Успешный ответ
-                const data = await response.json();
-                const token = data.access_token;
-
-                // 2. Сохранение токена
-                localStorage.setItem('jwtToken', token);
-                
-                // 3. Перенаправление
-                window.location.href = 'index.html'; 
-
-            } catch (error) {
-                console.error('Login error:', error);
-                messageElement.textContent = error.message;
+            } else {
+                const errBox = document.getElementById('err');
+                errBox.innerText = data.error || "Ошибка";
+                errBox.style.display = 'block';
             }
-        });
-    </script>
+        } catch (e) { alert("Сервер не отвечает"); }
+    }
+</script>
 </body>
 </html>

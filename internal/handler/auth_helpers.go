@@ -5,23 +5,26 @@ import (
 	"sport-manager/internal/auth"
 )
 
-// checkAdminRole извлекает роль из контекста и проверяет, является ли пользователь админом.
-// Возвращает false, если роль не найдена или не 'admin'.
+// checkAdminRole — внутренняя вспомогательная функция.
+// Она достает роль пользователя из контекста запроса (куда её ранее положил AuthMiddleware).
 func checkAdminRole(r *http.Request) bool {
-	// Извлекаем роль из контекста, используя ключ из пакета auth
+	// r.Context().Value позволяет получить данные, привязанные к текущему запросу.
+	// Приводим интерфейс к строке через .(string)
 	role, ok := r.Context().Value(auth.ContextKeyRole).(string)
 	if !ok {
-		return false // Роль не найдена
+		return false // Если токен был пустой или роль не указана
 	}
 	return role == "admin"
 }
 
-// requireAdmin проверяет права администратора.
-// Если пользователь не администратор, отправляет ответ 403 Forbidden и возвращает false.
+// requireAdmin — функция-страж.
+// Используется внутри хендлеров, чтобы пресечь действия не-админов.
 func requireAdmin(w http.ResponseWriter, r *http.Request) bool {
 	if !checkAdminRole(r) {
-		http.Error(w, "Access Denied. Only administrators can perform this action.", http.StatusForbidden)
+		// Если не админ — сразу отдаем статус 403 (Доступ запрещен)
+		http.Error(w, "Доступ запрещен. Это действие доступно только администраторам.", http.StatusForbidden)
 		return false
 	}
+	// Если админ — возвращаем true, и хендлер продолжает работу
 	return true
 }

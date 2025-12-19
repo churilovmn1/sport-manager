@@ -1,405 +1,118 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-	<meta charset="UTF-8">
-	<title>Список спортсменов (CRUD)</title>
-	<style>
-		body { font-family: Arial, sans-serif; margin: 20px; }
-		table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-		th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
-		th { background-color: #007bff; color: white; }
-		.header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
-		.form-container { 
-			border: 1px solid #ccc; 
-			padding: 15px; 
-			margin-bottom: 20px; 
-			border-radius: 5px;
-			display: none; 
-		}
-		.form-container input, .form-container select { margin-bottom: 10px; padding: 8px; width: 98%; display: block; }
-		.form-container button { margin-right: 10px; padding: 8px 15px; }
-		/* Красный стиль для ошибки */
-		#error { color: red; font-weight: bold; }
-	</style>
+    <meta charset="UTF-8">
+    <title>Список спортсменов</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background-color: #f4f7f9; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; background: white; }
+        th, td { border: 1px solid #ddd; padding: 12px; text-align: left; }
+        th { background-color: #007bff; color: white; }
+        .header { display: flex; justify-content: space-between; align-items: center; }
+        .form-container { border: 1px solid #ccc; padding: 15px; margin-bottom: 20px; border-radius: 5px; display: none; background: white; }
+        input, select { margin-bottom: 10px; padding: 8px; width: 100%; box-sizing: border-box; }
+        button { padding: 8px 15px; cursor: pointer; }
+    </style>
 </head>
 <body>
-	<div class="header">
-		<h1>Список спортсменов</h1>
-		<div>
-			<button onclick="toggleForm()">Добавить спортсмена</button>
-			<button onclick="window.location.href = 'participants.html'">Участники соревнований</button> 
-			<button onclick="logout()">Выход</button>
-		</div>
-	</div>
-	
-	<div id="editFormContainer" class="form-container">
-		<h2 id="formTitle">Добавление нового спортсмена</h2>
-		<form id="athleteForm">
-			<input type="hidden" id="athleteId">
-			<input type="text" id="fullName" placeholder="ФИО" required>
-			<input type="date" id="birthDate" placeholder="Дата рождения" required> 
-			<input type="text" id="gender" placeholder="Пол (M/F)" required> 
-			<input type="text" id="address" placeholder="Адрес" required>
-			
-			<button type="submit" id="submitButton">Сохранить</button>
-			<button type="button" onclick="toggleForm()">Отмена</button>
-		</form>
-	</div>
-	
-	<div id="athleteList">Загрузка данных...</div>
-	<p id="error"></p>
+    <div class="header">
+        <h1>Спортсмены</h1>
+        <div>
+            <button onclick="toggleForm()">+ Добавить</button>
+            <button onclick="window.location.href = 'index.html'">В меню</button>
+        </div>
+    </div>
+    
+    <div id="editFormContainer" class="form-container">
+        <h2 id="formTitle">Карточка спортсмена</h2>
+        <form id="athleteForm">
+            <input type="hidden" id="athleteId">
+            <input type="text" id="fullName" placeholder="ФИО" required>
+            <input type="date" id="birthDate" required> 
+            <select id="genderSelect">
+                <option value="m">Мужской (M)</option>
+                <option value="f">Женский (F)</option>
+            </select>
+            <input type="text" id="address" placeholder="Адрес" required>
+            <button type="submit">Сохранить</button>
+            <button type="button" onclick="toggleForm()">Отмена</button>
+        </form>
+    </div>
+    
+    <div id="athleteList">Загрузка...</div>
 
-	<script>
-		const API_BASE_URL = 'http://localhost:8080/api/v1';
+    <script>
+        const API = 'http://localhost:8080/api/v1';
+        const h = () => ({ 'Authorization': `Bearer ${localStorage.getItem('token')}`, 'Content-Type': 'application/json' });
 
-		function checkAuth() {
-			const token = localStorage.getItem('jwtToken');
-			if (!token) {
-				window.location.href = 'login.html';
-				return null;
-			}
-			return token;
-		}
+        async function fetchAthletes() {
+            try {
+                const res = await fetch(`${API}/athletes`, { headers: h() });
+                if (res.status === 401) window.location.replace('login.html');
+                const data = await res.json();
+                renderAthletes(data.athletes || data);
+            } catch (e) { document.getElementById('athleteList').innerText = "Ошибка доступа"; }
+        }
 
-		function logout() {
-			localStorage.removeItem('jwtToken');
-			window.location.href = 'login.html';
-		}
+        function renderAthletes(list) {
+            let html = '<table><tr><th>ФИО</th><th>Дата рожд.</th><th>Пол</th><th>Адрес</th><th>Действия</th></tr>';
+            (list || []).forEach(a => {
+                html += `<tr>
+                    <td>${a.full_name}</td>
+                    <td>${new Date(a.birth_date).toLocaleDateString()}</td>
+                    <td>${a.gender === 'm' ? 'М' : 'Ж'}</td>
+                    <td>${a.address}</td>
+                    <td>
+                        <button onclick="editAth(${a.id})">Ред.</button>
+                        <button style="color:red" onclick="delAth(${a.id})">Удалить</button>
+                    </td>
+                </tr>`;
+            });
+            document.getElementById('athleteList').innerHTML = html + '</table>';
+        }
 
-		function toggleForm(athlete = null) {
-			const formContainer = document.getElementById('editFormContainer');
-			const formTitle = document.getElementById('formTitle');
-			const athleteIdField = document.getElementById('athleteId');
-			const form = document.getElementById('athleteForm');
+        function toggleForm() {
+            const f = document.getElementById('editFormContainer');
+            f.style.display = f.style.display === 'block' ? 'none' : 'block';
+            if (f.style.display === 'none') document.getElementById('athleteForm').reset();
+        }
 
-			document.getElementById('error').textContent = '';
-			form.reset(); 
+        async function editAth(id) {
+            const res = await fetch(`${API}/athletes/${id}`, { headers: h() });
+            if (res.ok) {
+                const a = await res.json();
+                document.getElementById('athleteId').value = a.id;
+                document.getElementById('fullName').value = a.full_name;
+                document.getElementById('birthDate').value = a.birth_date.split('T')[0];
+                document.getElementById('genderSelect').value = a.gender;
+                document.getElementById('address').value = a.address;
+                document.getElementById('editFormContainer').style.display = 'block';
+            }
+        }
 
-			if (athlete) {
-				formTitle.textContent = `Редактирование спортсмена ID ${athlete.id}`;
-				athleteIdField.value = athlete.id;
-				document.getElementById('fullName').value = athlete.full_name;
-				
-				// Преобразование даты из ISO в YYYY-MM-DD
-				const datePart = athlete.birth_date ? athlete.birth_date.split('T')[0] : '';
-				document.getElementById('birthDate').value = datePart; 
-				
-				document.getElementById('gender').value = athlete.gender || 'M';
-				// Поля sportID и rankID УДАЛЕНЫ
-				document.getElementById('address').value = athlete.address;
+        async function delAth(id) {
+            if (confirm('Удалить?')) {
+                await fetch(`${API}/athletes/${id}`, { method: 'DELETE', headers: h() });
+                fetchAthletes();
+            }
+        }
 
-				form.onsubmit = editAthlete;
-				formContainer.style.display = 'block';
-			} else {
-				if (formContainer.style.display === 'block') {
-					formContainer.style.display = 'none';
-				} else {
-					formTitle.textContent = 'Добавление нового спортсмена';
-					athleteIdField.value = '';
-					form.onsubmit = createAthlete;
-					formContainer.style.display = 'block';
-				}
-			}
-		}
+        document.getElementById('athleteForm').onsubmit = async (e) => {
+            e.preventDefault();
+            const id = document.getElementById('athleteId').value;
+            const body = {
+                full_name: document.getElementById('fullName').value,
+                birth_date: new Date(document.getElementById('birthDate').value).toISOString(),
+                gender: document.getElementById('genderSelect').value,
+                address: document.getElementById('address').value
+            };
+            const method = id ? 'PUT' : 'POST';
+            const url = id ? `${API}/athletes/${id}` : `${API}/athletes`;
+            const res = await fetch(url, { method, headers: h(), body: JSON.stringify(body) });
+            if (res.ok) { toggleForm(); fetchAthletes(); } else { alert("Ошибка сохранения"); }
+        };
 
-		// --- Главные функции API ---
-
-		async function createAthlete(e) {
-			e.preventDefault();
-			const token = checkAuth();
-			if (!token) return;
-
-			const errorElement = document.getElementById('error');
-			errorElement.textContent = '';
-			
-			let rawDate = document.getElementById('birthDate').value;
-			let formattedDate;
-
-			if (rawDate) {
-				const dateObj = new Date(rawDate);
-				if (isNaN(dateObj.getTime())) {
-					errorElement.textContent = 'Ошибка: Не удалось распознать введенную дату.';
-					return;
-				}
-				// Отправляем в ISO-формате (time.RFC3339Nano)
-				formattedDate = dateObj.toISOString();
-			} else {
-				errorElement.textContent = 'Ошибка: Дата рождения не указана.';
-				return;
-			}
-
-
-			const athleteData = {
-				full_name: document.getElementById('fullName').value,
-				birth_date: formattedDate, 
-				gender: document.getElementById('gender').value,
-				// sport_id и rank_id УДАЛЕНЫ
-				is_active: true, 
-				address: document.getElementById('address').value
-			};
-			
-			console.log("Отправляемые данные спортсмена:", athleteData);
-
-			try {
-				const response = await fetch(`${API_BASE_URL}/athletes`, {
-					method: 'POST',
-					headers: {
-						'Authorization': `Bearer ${token}`, 
-						'Content-Type': 'application/json',
-					},
-					body: JSON.stringify(athleteData),
-				});
-				
-				const responseText = await response.text();
-				let result = {};
-				try {
-					result = responseText ? JSON.parse(responseText) : {};
-				} catch (e) {
-					result = { error: responseText || response.statusText };
-				}
-
-				if (!response.ok) {
-					const msg = result.error || result.message || response.statusText;
-					throw new Error(`Ошибка создания: ${msg}`);
-				}
-				
-				alert('Спортсмен успешно создан!');
-				toggleForm(); 
-				await fetchAthletes(); 
-
-			} catch (error) {
-				errorElement.textContent = error.message;
-			}
-		}
-		
-		async function loadAthleteForEdit(id) {
-			const token = checkAuth();
-			if (!token) return;
-
-			try {
-				const response = await fetch(`${API_BASE_URL}/athletes/${id}`, {
-					method: 'GET',
-					headers: { 'Authorization': `Bearer ${token}` }
-				});
-
-				if (!response.ok) {
-					throw new Error(`Ошибка загрузки данных спортсмена ID ${id}.`);
-				}
-
-				const athlete = await response.json();
-				toggleForm(athlete);
-			} catch (error) {
-				document.getElementById('error').textContent = error.message;
-			}
-		}
-
-		async function editAthlete(e) {
-			e.preventDefault();
-			const token = checkAuth();
-			if (!token) return;
-
-			const errorElement = document.getElementById('error');
-			errorElement.textContent = '';
-			
-			const id = document.getElementById('athleteId').value;
-			let rawDate = document.getElementById('birthDate').value;
-			let formattedDate;
-
-			if (rawDate) {
-				const dateObj = new Date(rawDate);
-				if (isNaN(dateObj.getTime())) {
-					errorElement.textContent = 'Ошибка: Не удалось распознать введенную дату.';
-					return;
-				}
-				formattedDate = dateObj.toISOString();
-			} else {
-				errorElement.textContent = 'Ошибка: Дата рождения не указана.';
-				return;
-			}
-
-			const athleteData = {
-				id: parseInt(id), 
-				full_name: document.getElementById('fullName').value,
-				birth_date: formattedDate, 
-				gender: document.getElementById('gender').value,
-				// sport_id и rank_id УДАЛЕНЫ
-				is_active: true, 
-				address: document.getElementById('address').value
-			};
-			
-			console.log("Отправляемые данные для редактирования:", athleteData);
-
-			try {
-				const response = await fetch(`${API_BASE_URL}/athletes/${id}`, {
-					method: 'PUT', 
-					headers: {
-						'Authorization': `Bearer ${token}`, 
-						'Content-Type': 'application/json',
-					},
-					body: JSON.stringify(athleteData),
-				});
-				
-				const responseText = await response.text();
-				let result = {};
-				try {
-					result = responseText ? JSON.parse(responseText) : {};
-				} catch (e) {
-					result = { error: responseText || response.statusText };
-				}
-				
-				if (!response.ok) {
-					const msg = result.error || result.message || response.statusText;
-					throw new Error(`Ошибка редактирования: ${msg}`);
-				}
-				
-				alert(`Спортсмен ID ${id} успешно обновлен!`);
-				toggleForm(); 
-				await fetchAthletes(); 
-
-			} catch (error) {
-				errorElement.textContent = error.message;
-			}
-		}
-		
-		async function deleteAthlete(id) {
-			const token = checkAuth();
-			if (!token) return;
-
-			if (!confirm(`Вы действительно хотите удалить спортсмена с ID ${id}?`)) {
-				return;
-			}
-
-			const errorElement = document.getElementById('error');
-			errorElement.textContent = '';
-			
-			console.log(`Отправка запроса DELETE для ID: ${id}`);
-
-			try {
-				const response = await fetch(`${API_BASE_URL}/athletes/${id}`, {
-					method: 'DELETE', 
-					headers: {
-						'Authorization': `Bearer ${token}`,
-					},
-				});
-
-				if (!response.ok) {
-					const responseText = await response.text();
-					let result = { error: response.statusText };
-					try {
-						 result = responseText ? JSON.parse(responseText) : result;
-					} catch (e) {}
-
-					throw new Error(`Ошибка удаления: ${result.error || result.message || response.statusText}`);
-				}
-
-				alert(`Спортсмен ID ${id} успешно удален!`);
-				await fetchAthletes(); 
-
-			} catch (error) {
-				errorElement.textContent = error.message;
-			}
-		}
-
-		async function fetchAthletes() {
-			const token = checkAuth();
-			if (!token) return;
-
-			const listElement = document.getElementById('athleteList');
-			const errorElement = document.getElementById('error');
-			listElement.innerHTML = 'Загрузка...';
-			errorElement.textContent = '';
-
-			try {
-				const response = await fetch(`${API_BASE_URL}/athletes`, {
-					method: 'GET',
-					headers: {
-						'Authorization': `Bearer ${token}`,
-						'Content-Type': 'application/json',
-					}
-				});
-
-				if (response.status === 401 || response.status === 403) {
-					logout();
-					throw new Error('Сессия истекла. Войдите снова.');
-				}
-
-				if (!response.ok) {
-					const errorJson = await response.json().catch(() => ({ message: 'Internal Server Error' }));
-					throw new Error(`Ошибка получения данных спортсменов: ${errorJson.message || response.statusText}`);
-				}
-				
-				const responseText = await response.text();
-				if (!responseText) {
-					renderAthletes([]);
-					return;
-				}
-
-				const data = JSON.parse(responseText);
-				let athletes;
-
-				if (Array.isArray(data)) {
-					athletes = data; 
-				} else if (data && Array.isArray(data.athletes)) {
-					athletes = data.athletes; 
-				} else {
-					athletes = [];
-				}
-
-				renderAthletes(athletes);
-
-			} catch (error) {
-				errorElement.textContent = `Ошибка: ${error.message}`;
-				listElement.innerHTML = '';
-			}
-		}
-
-		function renderAthletes(athletes) {
-			const listElement = document.getElementById('athleteList');
-			
-			if (athletes.length === 0) { 
-				listElement.innerHTML = '<p>Список спортсменов пуст.</p>';
-				return;
-			}
-
-			let tableHTML = '<table>';
-			// Заголовки (Вид спорта и Разряд УДАЛЕНЫ)
-			tableHTML += '<tr><th>ID</th><th>ФИО</th><th>Дата рождения</th><th>Пол</th><th>Адрес</th><th>Действия</th></tr>';
-
-			athletes.forEach(athlete => {
-				const displayDate = athlete.birth_date ? new Date(athlete.birth_date).toLocaleDateString() : 'N/A';
-
-				tableHTML += `
-					<tr>
-						<td>${athlete.id}</td>
-						<td>${athlete.full_name}</td>
-						<td>${displayDate}</td>
-						<td>${athlete.gender || 'N/A'}</td>
-						<td>${athlete.address}</td>
-						<td>
-							<button onclick="loadAthleteForEdit(${athlete.id})">Редактировать</button>
-							<button onclick="deleteAthlete(${athlete.id})">Удалить</button> 
-						</td>
-					</tr>
-				`;
-			});
-
-			tableHTML += '</table>';
-			listElement.innerHTML = tableHTML;
-		}
-
-		// --- Инициализация ---
-		
-		document.addEventListener('DOMContentLoaded', () => {
-			 document.getElementById('athleteForm').addEventListener('submit', (e) => {
-				if (document.getElementById('athleteId').value) {
-					editAthlete(e);
-				} else {
-					createAthlete(e);
-				}
-			 });
-			 fetchAthletes(); 
-		});
-		
-	</script>
+        window.onload = fetchAthletes;
+    </script>
 </body>
 </html>

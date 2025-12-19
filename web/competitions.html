@@ -4,337 +4,125 @@
     <meta charset="UTF-8">
     <title>Управление соревнованиями</title>
     <style>
-        body { font-family: Arial, sans-serif; margin: 20px; }
-        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
-        .form-container, .list-container { 
-            border: 1px solid #ccc; 
-            padding: 15px; 
-            margin-bottom: 20px; 
-            border-radius: 5px;
-        }
-        .form-container input { margin-bottom: 10px; padding: 8px; width: 98%; display: block; }
-        .form-container button { margin-right: 10px; padding: 8px 15px; }
-        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-        th, td { border: 1px solid #ddd; padding: 10px; text-align: left; }
-        th { background-color: #f0ad4e; color: white; }
+        body { font-family: 'Segoe UI', Arial, sans-serif; margin: 20px; background-color: #f4f7f9; }
+        .container { max-width: 1000px; margin: auto; }
+        .card { background: white; padding: 25px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); margin-bottom: 20px; }
+        h2 { color: #333; margin-top: 0; border-bottom: 2px solid #eee; padding-bottom: 10px; }
+        .form-grid { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 15px; }
+        input, button { padding: 10px; border-radius: 6px; border: 1px solid #ddd; font-size: 14px; }
+        .btn-add { background: #f6c23e; color: #333; width: 100%; margin-top: 15px; padding: 12px; font-weight: bold; border: none; cursor: pointer; }
+        .btn-edit { background: #ffc107; color: #212529; margin-right: 5px; border: none; padding: 5px 10px; border-radius: 4px; font-weight: bold; cursor: pointer; }
+        .btn-del { background: #dc3545; color: white; border: none; padding: 5px 10px; border-radius: 4px; font-weight: bold; cursor: pointer; }
+        .back-btn { background: #6c757d; color: white; text-decoration: none; padding: 8px 15px; display: inline-block; margin-bottom: 15px; border-radius: 4px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 15px; background: white; }
+        th, td { border: 1px solid #dee2e6; padding: 12px; text-align: left; }
+        th { background-color: #f6c23e; color: #333; }
+        #editModal { display: none; position: fixed; z-index: 100; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); justify-content: center; align-items: center; }
+        .modal-content { background: white; padding: 25px; border-radius: 10px; width: 450px; }
+        .modal-content label { display: block; margin-top: 10px; font-weight: bold; }
+        .modal-content input { width: 100%; box-sizing: border-box; margin-bottom: 10px; }
     </style>
 </head>
 <body>
-    <div class="header">
-        <h1>Управление соревнованиями</h1>
-        <div>
-            <button onclick="window.location.href = 'athletes.html'">Список спортсменов</button>
-            <button onclick="window.location.href = 'participants.html'">Участники</button>
-            <button onclick="logout()">Выход</button>
+<div class="container">
+    <a href="index.html" class="back-btn">← Назад в меню</a>
+    <div class="card">
+        <h2>Создать соревнование</h2>
+        <div class="form-grid">
+            <input type="text" id="addName" placeholder="Название турнира">
+            <input type="text" id="addLocation" placeholder="Место проведения">
+            <input type="date" id="addDate">
+        </div>
+        <button class="btn-add" onclick="createComp()">Создать турнир</button>
+    </div>
+    <div class="card">
+        <h2>Список соревнований</h2>
+        <div id="compTable">Загрузка...</div>
+    </div>
+</div>
+
+<div id="editModal">
+    <div class="modal-content">
+        <h3>Редактировать соревнование</h3>
+        <input type="hidden" id="editId">
+        <label>Название:</label><input type="text" id="editName">
+        <label>Место:</label><input type="text" id="editLocation">
+        <label>Дата начала:</label><input type="date" id="editDate">
+        <div style="display: flex; justify-content: space-between; gap: 10px; margin-top: 20px;">
+            <button onclick="closeModal()" style="background:#6c757d; color:white; flex: 1; padding: 10px;">Отмена</button>
+            <button onclick="updateComp()" style="background:#28a745; color:white; flex: 1; padding: 10px;">Сохранить</button>
         </div>
     </div>
+</div>
 
-    <div id="createCompetitionFormContainer" class="form-container">
-        <h2>Создать соревнование</h2>
-        <form id="createCompetitionForm">
-            <input type="text" id="compName" placeholder="Название" required>
-            <input type="text" id="compLocation" placeholder="Место проведения" required>
-            <label for="compStartDate">Дата начала:</label>
-            <input type="date" id="compStartDate" required>
-            
-            <button type="submit">Создать соревнование (POST)</button>
-        </form>
-        <p id="compStatus" style="color: blue; font-weight: bold;"></p>
-        <p id="compError" style="color: red;"></p>
-    </div>
+<script>
+    const API_URL = 'http://localhost:8080/api/v1';
+    const h = () => ({ 'Authorization': `Bearer ${localStorage.getItem('token')}`, 'Content-Type': 'application/json' });
 
-    <div class="list-container">
-        <h2>Список текущих соревнований</h2>
-        <div id="competitionList">Загрузка соревнований...</div>
-    </div>
-
-    <script>
-        const API_BASE_URL = 'http://localhost:8080/api/v1';
-
-        function checkAuth() {
-            const token = localStorage.getItem('jwtToken');
-            if (!token) {
-                window.location.href = 'login.html';
-                return null;
-            }
-            return token;
-        }
-
-        function logout() {
-            localStorage.removeItem('jwtToken');
-            window.location.href = 'login.html';
-        }
-        
-        // --- Хелпер для форматирования даты ---
-        function formatDate(dateString) {
-            const options = { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' };
-            try {
-                // Если строка содержит "T00:00:00Z", это обычно дата в UTC без времени
-                if (dateString && dateString.endsWith('T00:00:00Z')) {
-                     // Просто показываем дату, не путая часовой пояс
-                    return new Date(dateString).toLocaleDateString('ru-RU', { year: 'numeric', month: 'long', day: 'numeric' });
-                }
-                return new Date(dateString).toLocaleDateString('ru-RU', options);
-            } catch (e) {
-                return dateString; // Возвращаем как есть, если не удалось распарсить
-            }
-        }
-        
-        // --- Создание соревнования (POST) ---
-
-        async function createCompetition(e) {
-            e.preventDefault();
-            const token = checkAuth();
-            if (!token) return;
-
-            const statusElement = document.getElementById('compStatus');
-            const errorElement = document.getElementById('compError');
-            statusElement.textContent = 'Отправка...';
-            errorElement.textContent = '';
-            
-            // Получаем дату из поля ввода (формат YYYY-MM-DD)
-            const dateInput = document.getElementById('compStartDate').value;
-            // Конвертируем в ISO 8601 (RFC 3339) для Go: 2025-12-14T00:00:00Z
-            const startDateISO = dateInput ? new Date(dateInput).toISOString() : null; 
-
-            const compData = {
-                name: document.getElementById('compName').value,
-                location: document.getElementById('compLocation').value,
-                start_date: startDateISO 
-            };
-            
-            if (!compData.name || !compData.location || !compData.start_date) {
-                 errorElement.textContent = 'Все поля обязательны для заполнения.';
-                 statusElement.textContent = '';
-                 return;
-            }
-
-            try {
-                const response = await fetch(`${API_BASE_URL}/competitions`, {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${token}`, 
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify(compData),
-                });
-                
-                const responseText = await response.text();
-                let result = {};
-                
-                try {
-                    result = responseText ? JSON.parse(responseText) : {};
-                } catch (e) {
-                    result = { error: responseText || response.statusText };
-                }
-
-
-                if (!response.ok) {
-                    const msg = result.error || result.message || response.statusText;
-                    throw new Error(`Ошибка ${response.status}: ${msg}`);
-                }
-                
-                statusElement.textContent = `УСПЕХ! Соревнование ID: ${result.id} создано.`;
-                document.getElementById('createCompetitionForm').reset();
-                fetchCompetitions(); // Обновить список
-                
-            } catch (error) {
-                errorElement.textContent = `Ошибка: ${error.message}`;
-                statusElement.textContent = 'Создание не удалось.';
-            }
-        }
-
-        // --- Загрузка и отображение списка соревнований (GET) ---
-
-        async function fetchCompetitions() {
-            const token = checkAuth();
-            if (!token) return;
-
-            const listElement = document.getElementById('competitionList');
-            const errorElement = document.getElementById('compError');
-            listElement.innerHTML = 'Загрузка списка соревнований...';
-            errorElement.textContent = '';
-
-            try {
-                const response = await fetch(`${API_BASE_URL}/competitions`, {
-                    headers: { 'Authorization': `Bearer ${token}` }
-                });
-
-                if (response.status === 401 || response.status === 403) {
-                    logout();
-                    throw new Error('Сессия истекла. Войдите снова.');
-                }
-                
-                const responseText = await response.text();
-                let data = {};
-                
-                try {
-                    data = JSON.parse(responseText);
-                } catch (e) {
-                    // Обработка случая, когда Go вернул не-JSON (как это было с http.Error)
-                    throw new Error(`Ошибка декодирования ответа: ${responseText || response.statusText}`);
-                }
-                
-                if (!response.ok) {
-                    const msg = data.error || data.message || response.statusText;
-                    throw new Error(`Ошибка ${response.status} при загрузке: ${msg}`);
-                }
-                
-                // API возвращает {"competitions": [...]}
-                const competitions = data.competitions || [];
-                renderCompetitions(competitions);
-
-            } catch (error) {
-                errorElement.textContent = `Ошибка: ${error.message}`;
-                listElement.innerHTML = 'Не удалось загрузить список соревнований.';
-            }
-        }
-
-        function renderCompetitions(competitions) {
-            const listElement = document.getElementById('competitionList');
-            
-            if (!Array.isArray(competitions) || competitions.length === 0) {
-                listElement.innerHTML = '<p>Нет зарегистрированных соревнований.</p>';
-                return;
-            }
-
-            let tableHTML = '<table>';
-            tableHTML += '<tr><th>ID</th><th>Название</th><th>Место</th><th>Дата начала</th><th>Действия</th></tr>';
-
-            competitions.forEach(c => {
-                tableHTML += `
-                    <tr>
-                        <td>${c.id}</td>
-                        <td>${c.name}</td>
-                        <td>${c.location}</td>
-                        <td>${formatDate(c.start_date)}</td>
-                        <td>
-                            <button onclick="promptForUpdate(${c.id}, '${c.name}', '${c.location}')">Редактировать</button>
-                            <button onclick="deleteCompetition(${c.id})">Удалить</button>
-                        </td>
-                    </tr>
-                `;
+    async function load() {
+        try {
+            const res = await fetch(`${API_URL}/competitions`, { headers: h() });
+            if (res.status === 401) window.location.replace('login.html');
+            const data = await res.json();
+            const list = data.competitions || data || [];
+            let html = `<table><tr><th>Название</th><th>Место</th><th>Дата</th><th>Действия</th></tr>`;
+            list.forEach(c => {
+                const dateRaw = c.start_date || c.StartDate || c.date;
+                const dateDisp = dateRaw ? new Date(dateRaw).toLocaleDateString() : '—';
+                html += `<tr>
+                    <td>${c.name}</td>
+                    <td>${c.location || '—'}</td>
+                    <td>${dateDisp}</td>
+                    <td>
+                        <button class="btn-edit" onclick="openModal(${c.id}, '${c.name}', '${c.location||''}', '${dateRaw||''}')">Изменить</button>
+                        <button class="btn-del" onclick="deleteComp(${c.id})">Удалить</button>
+                    </td>
+                </tr>`;
             });
+            document.getElementById('compTable').innerHTML = html + "</table>";
+        } catch (e) { document.getElementById('compTable').innerHTML = "Ошибка загрузки"; }
+    }
 
-            tableHTML += '</table>';
-            listElement.innerHTML = tableHTML;
+    async function createComp() {
+        const d = document.getElementById('addDate').value;
+        if (!d) return alert("Выберите дату!");
+        const body = {
+            name: document.getElementById('addName').value,
+            location: document.getElementById('addLocation').value,
+            start_date: new Date(d).toISOString()
+        };
+        const res = await fetch(`${API_URL}/competitions`, { method: 'POST', headers: h(), body: JSON.stringify(body) });
+        if (res.ok) { load(); } else { alert("Ошибка создания"); }
+    }
+
+    function openModal(id, name, loc, date) {
+        document.getElementById('editId').value = id;
+        document.getElementById('editName').value = name;
+        document.getElementById('editLocation').value = loc;
+        if(date) document.getElementById('editDate').value = date.split('T')[0];
+        document.getElementById('editModal').style.display = 'flex';
+    }
+
+    function closeModal() { document.getElementById('editModal').style.display = 'none'; }
+
+    async function updateComp() {
+        const d = document.getElementById('editDate').value;
+        const body = {
+            name: document.getElementById('editName').value,
+            location: document.getElementById('editLocation').value,
+            start_date: d ? new Date(d).toISOString() : null
+        };
+        const res = await fetch(`${API_URL}/competitions/${document.getElementById('editId').value}`, { method: 'PUT', headers: h(), body: JSON.stringify(body) });
+        if (res.ok) { closeModal(); load(); } else { alert("Ошибка обновления"); }
+    }
+
+    async function deleteComp(id) {
+        if (confirm("Удалить?")) {
+            await fetch(`${API_URL}/competitions/${id}`, { method: 'DELETE', headers: h() });
+            load();
         }
-        
-        // --- Обновление соревнования (PUT) ---
-        
-        async function promptForUpdate(id, currentName, currentLocation) {
-            const newName = prompt(`Введите новое название для ID ${id}:`, currentName);
-            if (newName === null) return;
-            
-            const newLocation = prompt(`Введите новое место для ID ${id}:`, currentLocation);
-            if (newLocation === null) return;
-            
-            // Если вы хотите обновлять дату, здесь нужно добавить соответствующий prompt
-
-            await updateCompetition(id, newName, newLocation);
-        }
-
-        async function updateCompetition(id, name, location, startDate) {
-            const token = checkAuth();
-            if (!token) return;
-            
-            const errorElement = document.getElementById('compError');
-            errorElement.textContent = '';
-
-            try {
-                // ВАЖНО: При Update/PUT нужно отправить ВСЕ поля, 
-                // включая StartDate (даже если не меняли), иначе Go-модель обнулится.
-                // В данном примере я упростил:
-
-                const response = await fetch(`${API_BASE_URL}/competitions/${id}`, {
-                    method: 'PUT',
-                    headers: {
-                        'Authorization': `Bearer ${token}`,
-                        'Content-Type': 'application/json',
-                    },
-                    // NOTE: Для полноценного обновления нужно сначала сделать GET, 
-                    // получить текущие данные (особенно StartDate) и отправить их обратно.
-                    // Здесь предполагается, что StartDate не меняется, или вы получите его
-                    // через дополнительный ввод (для простоты опущен).
-                    // Я использую существующие данные для заполнения:
-                    body: JSON.stringify({ 
-                        id: id, 
-                        name: name, 
-                        location: location, 
-                        start_date: startDate || new Date().toISOString() // Заглушка, если дата не обновляется
-                    }), 
-                });
-
-                const responseText = await response.text();
-                let result = {};
-                try {
-                    result = JSON.parse(responseText);
-                } catch(e) {
-                    result = { error: responseText || response.statusText };
-                }
-
-                if (!response.ok) {
-                    throw new Error(`Ошибка ${response.status}: ${result.error || result.message || response.statusText}`);
-                }
-
-                alert(`Соревнование ID ${id} обновлено.`);
-                fetchCompetitions();
-
-            } catch (error) {
-                errorElement.textContent = error.message;
-            }
-        }
-        
-        // --- Удаление соревнования (DELETE) ---
-
-        async function deleteCompetition(id) {
-            const token = checkAuth();
-            if (!token) return;
-
-            if (!confirm(`Вы уверены, что хотите удалить соревнование ID ${id}?`)) {
-                return;
-            }
-
-            const errorElement = document.getElementById('compError');
-            errorElement.textContent = '';
-            
-            try {
-                const response = await fetch(`${API_BASE_URL}/competitions/${id}`, {
-                    method: 'DELETE', 
-                    headers: { 'Authorization': `Bearer ${token}` }
-                });
-
-                if (response.status === 404) throw new Error("Соревнование не найдено.");
-                
-                if (!response.ok && response.status !== 204) {
-                    const responseText = await response.text();
-                    let result = {};
-                    try {
-                        result = JSON.parse(responseText);
-                    } catch(e) {
-                        result = { error: responseText || response.statusText };
-                    }
-                    throw new Error(`Ошибка ${response.status}: ${result.error || result.message || response.statusText}`);
-                }
-                
-                alert(`Соревнование ID ${id} успешно удалено.`);
-                fetchCompetitions(); 
-
-            } catch (error) {
-                errorElement.textContent = error.message;
-            }
-        }
-
-
-        // --- Инициализация ---
-
-        document.addEventListener('DOMContentLoaded', () => {
-             // Привязка формы создания
-             document.getElementById('createCompetitionForm').addEventListener('submit', createCompetition);
-             
-             // Загрузка списка соревнований при старте
-             fetchCompetitions();
-        });
-    </script>
+    }
+    window.onload = load;
+</script>
 </body>
 </html>

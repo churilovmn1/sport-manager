@@ -2,57 +2,90 @@ package handler
 
 import (
 	"encoding/json"
-	"log" // Добавлен для логгирования
 	"net/http"
-	
 	"sport-manager/internal/service"
 )
 
-// LoginRequest определяет структуру для входящего запроса логина
+// --- СТРУКТУРЫ ДАННЫХ ДЛЯ ЗАПРОСОВ ---
+
+// LoginRequest описывает входящие данные для входа
 type LoginRequest struct {
-	Username string `json:"username"` // <-- ИСПРАВЛЕНО: Добавлен JSON-тег
-	Password string `json:"password"` // <-- ИСПРАВЛЕНО: Добавлен JSON-тег
+	Username string `json:"username"`
+	Password string `json:"password"`
 }
 
-// AuthHandler содержит методы для обработки HTTP-запросов аутентификации
+// RegisterRequest описывает входящие данные для создания аккаунта
+type RegisterRequest struct {
+	Username string `json:"username"`
+	Email    string `json:"email"`
+	Password string `json:"password"`
+}
+
+// AuthHandler отвечает за обработку HTTP-запросов, связанных с аутентификацией
 type AuthHandler struct {
 	service *service.AuthService
 }
 
+// NewAuthHandler создает новый экземпляр хендлера (Dependency Injection)
 func NewAuthHandler(s *service.AuthService) *AuthHandler {
 	return &AuthHandler{service: s}
 }
 
-// Login обрабатывает запрос POST /api/v1/auth/login
+// --- МЕТОДЫ ОБРАБОТКИ ---
+
+// Login выполняет аутентификацию пользователя и выдает JWT токен
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	var req LoginRequest
-	
-	// 1. Декодирование JSON
+	// Декодируем тело JSON-запроса в структуру
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request payload", http.StatusBadRequest)
+		h.respondWithError(w, http.StatusBadRequest, "Некорректный формат запроса")
 		return
 	}
 
-	// 2. ДИАГНОСТИЧЕСКИЙ ЛОГ
-	log.Printf("DEBUG: Login attempt for user: %s, password length: %d", req.Username, len(req.Password))
-	if req.Username == "" || req.Password == "" {
-        log.Println("DEBUG: Username or Password field is empty after decoding. Check JSON tags in LoginRequest.")
-    }
-	// ----------------------
-
-	// 3. Аутентификация
+	// Вызываем бизнес-логику из сервиса
 	token, err := h.service.Login(r.Context(), req.Username, req.Password)
 	if err != nil {
-		// В идеале: вернуть JSON-ошибку, а не простой текст
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(map[string]string{"error": "Invalid credentials"})
+		// Если пароль неверный или пользователь не найден
+		h.respondWithError(w, http.StatusUnauthorized, "Неверный логин или пароль")
 		return
 	}
 
-	// 4. Успешный ответ
-	// Возвращаем access_token (соответствует ожиданиям JS-фронтенда)
+	// Возвращаем токен в случае успеха
+	h.respondWithJSON(w, http.StatusOK, map[string]string{
+		"access_token": token,
+		"status":       "success",
+	})
+}
+
+// Register создает нового пользователя в системе
+func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
+	var req RegisterRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.respondWithError(w, http.StatusBadRequest, "Некорректный формат запроса")
+		return
+	}
+
+	// Передаем данные в слой сервиса для регистрации
+	err := h.service.Register(r.Context(), req.Username, req.Email, req.Password)
+	if err != nil {
+		h.respondWithError(w, http.StatusInternalServerError, "Ошибка при создании пользователя")
+		return
+	}
+
+	// Успешный ответ (201 Created)
+	h.respondWithJSON(w, http.StatusCreated, map[string]string{"status": "success"})
+}
+
+// --- ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ (Утилиты для чистоты кода) ---
+
+// respondWithError упрощает отправку сообщений об ошибках в формате JSON
+func (h *AuthHandler) respondWithError(w http.ResponseWriter, code int, message string) {
+	h.respondWithJSON(w, code, map[string]string{"error": message})
+}
+
+// respondWithJSON унифицирует отправку успешных ответов и установку заголовков
+func (h *AuthHandler) respondWithJSON(w http.ResponseWriter, code int, payload interface{}) {
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"access_token": token})
+	w.WriteHeader(code)
+	json.NewEncoder(w).Encode(payload)
 }
